@@ -1,93 +1,74 @@
-from fastapi import Depends, HTTPException, status, Cookie
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-import uuid
-import logging
-from datetime import datetime, timezone
+from typing import List
 
-from app.core.security.jwt_handler import decode_supabase_token, decode_internal_token
 from app.infrastructure.database.session import get_db
 from app.domain.models.user import User
-from app.domain.models.admin import Admin
+from app.core.security.jwt_handler import decode_supabase_token
 
-logger = logging.getLogger(__name__)
-
-security = HTTPBearer(auto_error=False)
-
-async def get_current_user(
-    auth: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
+async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
-    Dependencia para Usuarios Finales (Google/Magic Link via Supabase).
-    Valida el JWT de Supabase y sincroniza/crea en la tabla 'users'.
+    Valida el token de Supabase y retorna el usuario de la tabla pública.
+    Busca el token en el header Authorization o en la cookie 'access_token'.
     """
-    if not auth:
-        logger.warning("get_current_user: No se recibió Authorization header")
+    auth_header = request.headers.get("Authorization")
+    token = None
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    else:
+        # Fallback a cookie
+        token = request.cookies.get("access_token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Se requiere token de acceso",
+            detail="No se proporcionó un token de autenticación"
         )
-    
-    token_preview = auth.credentials[:30] + "..." if len(auth.credentials) > 30 else auth.credentials
-    logger.info(f"get_current_user: Validando token (preview): {token_preview}")
-    
-    payload = decode_supabase_token(auth.credentials)
+
+    payload = decode_supabase_token(token)
     if not payload:
-        logger.error(f"get_current_user: decode_supabase_token retornó None para token: {token_preview}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sesión expirada o token inválido",
+            detail="Token inválido o expirado"
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="El token no contiene el ID de usuario (sub)"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no registrado en la base de datos pública"
         )
     
-    logger.info(f"get_current_user: Token válido para sub={payload.get('sub')}, email={payload.get('email')}")
-    
-    try:
-        from app.application.auth.service import auth_service
-        user = auth_service.sync_supabase_user(payload, db)
-    except Exception as e:
-        logger.error(f"get_current_user: sync_supabase_user falló: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al sincronizar usuario: {str(e)}")
-
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Cuenta desactivada")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La cuenta de usuario está desactivada"
+        )
 
     return user
 
-async def get_current_admin(
-    auth: HTTPAuthorizationCredentials = Depends(security),
-    admin_token: str | None = Cookie(None),
-    db: Session = Depends(get_db)
-):
+def require_role(allowed_roles: List[str]):
     """
-    Dependencia para Administradores (Email/Password).
-    Valida el JWT interno (via header o cookie) y verifica en la tabla 'admins'.
+    Dependencia para proteger rutas basado en roles.
+    Uso: Depends(require_role(["admin", "super_admin"]))
     """
-    token = None
-    if auth:
-        token = auth.credentials
-    elif admin_token:
-        token = admin_token
+    async def role_dependency(current_user: User = Depends(get_current_user)):
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos suficientes para realizar esta acción"
+            )
+        return current_user
+    return role_dependency
 
-    if not token:
-        raise HTTPException(status_code=401, detail="Se requiere acceso de administrador")
-    
-    payload = decode_internal_token(token)
-    if not payload or payload.get("type") != "admin_session":
-        raise HTTPException(status_code=401, detail="Sesión de administrador inválida")
-    
-    admin_id = payload.get("sub")
-    admin = db.query(Admin).filter(Admin.id == admin_id).first()
-    
-    if not admin or not admin.is_active:
-        raise HTTPException(status_code=403, detail="Acceso denegado o cuenta inactivada")
-    
-    return admin
-
-async def get_current_super_admin(current_admin: Admin = Depends(get_current_admin)):
-    """
-    Verifica que el administrador sea Super Admin.
-    """
-    if not current_admin.is_superadmin:
-        raise HTTPException(status_code=403, detail="Se requieren permisos de Súper Administrador")
-    return current_admin
+# Versiones rápidas para roles comunes
+require_admin = require_role(["admin", "super_admin"])
+require_super_admin = require_role(["super_admin"])

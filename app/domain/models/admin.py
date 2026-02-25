@@ -1,7 +1,7 @@
-from sqlalchemy import Column, String, Boolean, DateTime, UUID
+from sqlalchemy import Column, String, Boolean, DateTime, UUID, text
 from app.infrastructure.database.session import Base
 import uuid
-from datetime import datetime, timezone
+from app.core.utils.datetime import get_utc_now
 
 class Admin(Base):
     __tablename__ = "admins"
@@ -11,8 +11,9 @@ class Admin(Base):
     password_hash = Column(String, nullable=False)
     is_superadmin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), default=get_utc_now)
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), default=get_utc_now, onupdate=get_utc_now)
+
 
     def __repr__(self):
         return f"<Admin(email={self.email}, is_superadmin={self.is_superadmin})>"

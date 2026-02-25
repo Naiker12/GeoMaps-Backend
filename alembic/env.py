@@ -26,7 +26,9 @@ load_dotenv()
 from app.infrastructure.database.session import Base
 from app.domain.models.user import User
 from app.domain.models.admin import Admin
+from app.domain.models.user_session import UserSession
  # Importamos modelos para que se registren en Base
+
 
 # add your model's MetaData object here
 target_metadata = Base.metadata

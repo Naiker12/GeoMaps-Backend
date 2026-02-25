@@ -1,22 +1,20 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
+from uuid import UUID
 
 class UserBase(BaseModel):
-    id: str
+    id: UUID
     email: EmailStr
     full_name: Optional[str] = None
     role: str
-    is_active: bool = True
-    last_login: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    is_active: bool
+    created_at: datetime
 
-class UserCreate(BaseModel):
-    name: str
-    email: EmailStr
-    role: str
-    password: str
-
-class UserResponse(UserBase):
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    role: Optional[str] = None

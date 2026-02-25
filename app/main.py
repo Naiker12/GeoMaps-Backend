@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import JSONResponse
 import logging
 import traceback
 
@@ -8,10 +8,10 @@ import traceback
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from app.core.security.dependencies import get_current_user, get_current_admin
-from app.domain.models.user import User
 from app.core.config import settings
-from app.api.v1 import users, auth
+from app.api.v1 import auth as auth_v1
+from app.api.v1.admin import router as admin_router
+from app.api.v1.portal import router as portal_router
 
 app = FastAPI(
     title="GeoMaps API",
@@ -47,11 +47,18 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# API Routers
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(users.router, prefix="/api/v1")
+# --- API ROUTERS (Multi-Tier Architecture) ---
 
-# Configuración de CORS
+# TIER 1: Autenticación & Seguridad (Público/Compartido)
+app.include_router(auth_v1.router, prefix="/api/v1")
+
+# TIER 2: Portal Público (Geoportal)
+app.include_router(portal_router, prefix="/api/v1")
+
+# TIER 3: Panel Administrativo (Admin)
+app.include_router(admin_router, prefix="/api/v1")
+
+# --- MIDDLEWARE & CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
@@ -60,12 +67,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- ENDPOINTS DE SISTEMA ---
+
+@app.get("/api/health")
+async def health_check():
+    """Endpoint para monitoreo de salud del servicio."""
+    return {
+        "status": "healthy", 
+        "service": "GeoMaps API",
+        "version": "1.0.0"
+    }
+
 @app.get("/")
 async def root():
-    return {"message": "GeoMaps API Online", "docs": "/docs"}
-
-# --- ENDPOINTS PROTEGIDOS ---
-
+    """Punto de entrada informativo de la API."""
+    return {
+        "app": "GeoMaps Intelligence API",
+        "environment": "production" if not settings.FRONTEND_URL.startswith("http://localhost") else "development",
+        "endpoints": {
+            "auth": "/api/v1/auth",
+            "admin": "/api/v1/admin",
+            "portal": "/api/v1/portal",
+            "docs": "/docs"
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn

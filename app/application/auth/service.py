@@ -1,15 +1,20 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import timedelta
 from typing import Optional
-import json
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 from app.domain.models.user import User
 from app.domain.models.admin import Admin
+from app.domain.models.user_session import UserSession
 from app.schemas.auth_schema import AuthResponse, UserBase
 from app.core.config import settings
 from app.core.security.password import verify_password
 from app.core.security.jwt_handler import create_access_token
+from app.core.utils.datetime import get_utc_now
 from supabase import create_client, Client
+
+logger = logging.getLogger(__name__)
 
 class AuthService:
     def __init__(self):
@@ -20,7 +25,7 @@ class AuthService:
         Envía un enlace mágico al correo del usuario usando Supabase Auth.
         """
         try:
-            response = self.supabase.auth.sign_in_with_otp({
+            self.supabase.auth.sign_in_with_otp({
                 "email": email,
                 "options": {
                     "should_create_user": True,
@@ -34,35 +39,39 @@ class AuthService:
         except Exception as e:
             return AuthResponse(success=False, message=str(e))
 
-    async def login_admin(self, email: str, password: str, db: Session) -> AuthResponse:
+    async def login_admin(self, email: str, password: str, db: Session, ip_address: str = None, user_agent: str = None) -> AuthResponse:
         """
-        Login tradicional con contraseña para Administradores desde la base local.
+        Login tradicional para Administradores con control estricto de sesión en UTC.
         """
         try:
             admin = db.query(Admin).filter(Admin.email == email).first()
-            if not admin:
-                print(f"Login failed: Admin with email {email} not found")
+            if not admin or not admin.is_active:
+                return AuthResponse(success=False, message="Credenciales inválidas o cuenta desactivada")
+            
+            if not verify_password(password, admin.password_hash):
                 return AuthResponse(success=False, message="Credenciales inválidas")
-            
-            if not admin.is_active:
-                print(f"Login failed: Admin {email} is not active")
-                return AuthResponse(success=False, message="Cuenta de administrador desactivada")
 
-            print(f"Verifying password for {email}...")
-            is_valid = verify_password(password, admin.password_hash)
-            print(f"Password valid: {is_valid}")
-            
-            if not is_valid:
-                return AuthResponse(success=False, message="Contraseña incorrecta")
+            # 1. Crear sesión en base de datos (UTC Aware)
+            expires_at = get_utc_now() + timedelta(hours=24)
+            session = UserSession(
+                user_id=admin.id,
+                session_type="admin",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                expires_at=expires_at
+            )
+            db.add(session)
+            db.flush() 
 
-            # Generamos JWT interno
+            # 2. Generar JWT interno usando el ID de sesión como 'sid'
             access_token = create_access_token(data={
                 "sub": str(admin.id),
-                "email": admin.email,
-                "role": "SUPER_ADMIN" if admin.is_superadmin else "ADMIN",
-                "type": "admin_session"
+                "sid": str(session.id),
+                "type": "admin_session",
+                "role": "SUPER_ADMIN" if admin.is_superadmin else "ADMIN"
             })
 
+            db.commit()
             return AuthResponse(
                 success=True,
                 access_token=access_token,
@@ -70,62 +79,103 @@ class AuthService:
                     id=str(admin.id),
                     email=admin.email,
                     full_name="Administrator",
-                    role="SUPER_ADMIN" if admin.is_superadmin else "ADMIN",
-                    avatar_url=None
+                    role="SUPER_ADMIN" if admin.is_superadmin else "ADMIN"
                 )
             )
         except Exception as e:
-            return AuthResponse(success=False, message=f"Error en login admin: {str(e)}")
+            db.rollback()
+            logger.error(f"Error en login admin: {str(e)}")
+            return AuthResponse(success=False, message="Error interno en el servidor")
 
-    def sync_supabase_user(self, payload: dict, db: Session) -> User:
+    def start_user_session(
+        self, 
+        payload: dict, 
+        db: Session,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> tuple[User, str]:
         """
-        Sincroniza el usuario de Supabase con la base de datos local.
-        Asegura que el UUID sea el mismo y gestiona roles/metadatos.
+        Sincroniza el usuario de Supabase y crea una sesión local.
+        SI el usuario no existe en la tabla local, SE CREA automáticamente.
         """
-        user_id_str = payload.get("sub")
+        supabase_id_str = payload.get("sub")
         email = payload.get("email")
-        metadata = payload.get("user_metadata", {})
+        user_metadata = payload.get("user_metadata", {})
 
-        if not user_id_str or not email:
-             raise Exception("Invalid Supabase token payload")
+        if not supabase_id_str:
+             raise HTTPException(status_code=401, detail="Token de Supabase inválido: falta 'sub'")
 
-        user_uuid = uuid.UUID(user_id_str)
+        supabase_uuid = uuid.UUID(supabase_id_str)
         
-        # 1. Buscar por ID (UUID compartido)
-        user = db.query(User).filter(User.id == user_uuid).first()
+        # 1. Buscar usuario por supabase_id
+        user = db.query(User).filter(User.supabase_id == supabase_uuid).first()
         
         if not user:
-            # 2. Si no existe por ID, verificar por email (posible migración o primer login)
+            logger.info(f"Usuario {email} no encontrado por supabase_id. Buscando por email...")
+            # 2. Intentar buscar por email
             user = db.query(User).filter(User.email == email).first()
             if user:
-                # Si existe por email pero no tiene el ID de Supabase, lo actualizamos (Vínculo Profesional)
-                user.id = user_uuid
+                logger.info(f"Usuario {email} encontrado por email. Vinculando supabase_id...")
+                user.supabase_id = supabase_uuid
             else:
-                # 3. Crear usuario nuevo con el ID de Supabase
-                user = User(
-                    id=user_uuid,
-                    email=email,
-                    full_name=metadata.get("full_name") or metadata.get("name") or "",
-                    avatar_url=metadata.get("avatar_url") or metadata.get("picture"),
-                    role="user",
-                    provider="google",
-                    is_active=True
-                )
-                db.add(user)
-        else:
-            # 4. Actualizar metadatos si ya existe
-            user.full_name = metadata.get("full_name") or metadata.get("name") or user.full_name
-            user.avatar_url = metadata.get("avatar_url") or metadata.get("picture") or user.avatar_url
+                logger.info(f"Creando nuevo usuario local para {email} (Sincronización inicial)")
+                # 3. Crear automáticamente (Sincronización)
+                try:
+                    user = User(
+                        supabase_id=supabase_uuid,
+                        email=email,
+                        full_name=user_metadata.get("full_name") or user_metadata.get("name") or email.split("@")[0],
+                        avatar_url=user_metadata.get("avatar_url") or user_metadata.get("picture"),
+                        auth_provider="google" if payload.get("app_metadata", {}).get("provider") == "google" else "supabase",
+                        is_active=True
+                    )
+                    db.add(user)
+                    db.flush() # Importante: asegura que el usuario tenga ID antes de crear la sesión
+                    logger.info(f"Usuario {email} creado exitosamente con ID local {user.id}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Error crítico creando usuario local: {str(e)}")
+                    raise HTTPException(status_code=500, detail="Error al sincronizar perfil de usuario")
+
         
-        user.last_login = datetime.now(timezone.utc)
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Cuenta desactivada")
+
+        # 4. Crear sesión en DB (UTC Aware)
+        expires_at = get_utc_now() + timedelta(hours=24)
+        session = UserSession(
+            user_id=user.id,
+            session_type="user",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            expires_at=expires_at
+        )
+        db.add(session)
+        db.flush()
+
+        # 5. Generar nuestro propio token de sesión
+        access_token = create_access_token(data={
+            "sub": str(user.id),
+            "sid": str(session.id),
+            "type": "user_session"
+        })
+
+        user.last_login = get_utc_now()
+        db.commit()
         
+        return user, access_token
+
+    def invalidate_session(self, session_id: str, db: Session):
+        """
+        Invalida una sesión en la base de datos usando tiempo UTC.
+        """
         try:
-            db.commit()
-            db.refresh(user)
+            session = db.query(UserSession).filter(UserSession.id == session_id).first()
+            if session:
+                session.logout_at = get_utc_now()
+                db.commit()
         except Exception as e:
+            logger.error(f"Error al invalidar sesión: {str(e)}")
             db.rollback()
-            raise Exception(f"Error syncing user: {str(e)}")
-            
-        return user
 
 auth_service = AuthService()
