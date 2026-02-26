@@ -6,6 +6,9 @@ from app.infrastructure.database.session import get_db
 from app.domain.models.user import User
 from app.core.security.jwt_handler import decode_supabase_token
 
+import uuid
+from sqlalchemy import or_
+
 async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
     Valida el token de Supabase y retorna el usuario de la tabla pública.
@@ -40,7 +43,14 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> U
             detail="El token no contiene el ID de usuario (sub)"
         )
 
-    user = db.query(User).filter(User.id == user_id).first()
+    try:
+        user_uuid = uuid.UUID(user_id)
+        user = db.query(User).filter(
+            or_(User.id == user_uuid, User.supabase_id == user_uuid)
+        ).first()
+    except ValueError:
+        user = None
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

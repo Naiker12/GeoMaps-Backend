@@ -9,6 +9,26 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Crea un token de acceso propio firmado con el secret de Supabase."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=1440)
+    to_encode.update({"exp": expire})
+    
+    secret_raw = settings.SUPABASE_JWT_SECRET
+    try:
+        secret_stripped = secret_raw.strip()
+        missing_padding = len(secret_stripped) % 4
+        if missing_padding:
+            secret_stripped += "=" * (4 - missing_padding)
+        secret_bytes = base64.b64decode(secret_stripped)
+        return jwt.encode(to_encode, secret_bytes, algorithm="HS256")
+    except Exception:
+        return jwt.encode(to_encode, secret_raw, algorithm="HS256")
+
 # Cache para las llaves JWKS de Supabase
 _jwks_cache: Dict[str, Any] = {}
 _jwks_last_fetch: Optional[datetime] = None
