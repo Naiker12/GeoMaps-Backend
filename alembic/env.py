@@ -1,58 +1,53 @@
+import asyncio
+import logging
 from logging.config import fileConfig
 
+import sqlalchemy
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# Este es el objeto Config de Alembic, que proporciona
+# acceso a los valores dentro del archivo .ini en uso.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# Interpretar el archivo de configuración para el registro de Python.
+# Esta línea configura básicamente los registradores.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import os
-import sys
-from dotenv import load_dotenv
-
-# Añadimos el directorio raíz al path para importar app
-sys.path.append(os.getcwd())
-
-load_dotenv()
-
-from app.infrastructure.database.session import Base
-from app.domain.models.user import User
-from app.domain.models.admin import Admin
-from app.domain.models.user_session import UserSession
- # Importamos modelos para que se registren en Base
-
-
-# add your model's MetaData object here
+# Añade el objeto MetaData de tu modelo aquí
+# para soporte de 'autogenerate'
+# de myapp import mymodel
+# target_metadata = mymodel.Base.metadata
+from app.db.base import Base
 target_metadata = Base.metadata
 
-# Sobrescribimos la URL de la db con la del archivo .env
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL"))
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
+# otros valores de la configuración, definidos por las necesidades de env.py,
+# pueden ser adquiridos desde aquí:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+def include_object(object, name, type_, reflected, compare_to):
+    """
+    Indica si Alembic debe incluir el objeto en la migración.
+    Ignoramos la tabla 'spatial_ref_sys' de PostGIS para evitar que intente borrarla.
+    """
+    if type_ == "table" and name == "spatial_ref_sys":
+        return False
+    return True
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
+    """Ejecuta las migraciones en modo 'offline'.
 
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
+    Configura el contexto con solo una URL
+    y no un Motor, aunque un Motor también es aceptable
+    aquí. Al omitir la creación del Motor, ni siquiera necesitamos
+    que un DBAPI esté disponible.
 
-    Calls to context.execute() here emit the given string to the
-    script output.
-
+    Las llamadas a context.execute() aquí emiten la cadena dada a la
+    salida del script.
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -60,6 +55,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -67,11 +63,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+    """Ejecuta las migraciones en modo 'online'.
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
+    En este escenario necesitamos crear un Motor (Engine)
+    y asociar una conexión con el contexto.
     """
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -81,7 +76,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

@@ -9,14 +9,23 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Crea un token de acceso propio firmado con el secret de Supabase."""
-    to_encode = data.copy()
+def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None) -> str:
+    """Crea un token de acceso propio firmado con el secret de Supabase, compatible con la validación local."""
+    if isinstance(subject, dict):
+        to_encode = subject.copy()
+    else:
+        to_encode = {"sub": str(subject)}
+        
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=1440)
-    to_encode.update({"exp": expire})
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({
+        "exp": expire,
+        "aud": "authenticated",
+        "iss": f"{settings.SUPABASE_URL}/auth/v1"
+    })
     
     secret_raw = settings.SUPABASE_JWT_SECRET
     try:
@@ -28,6 +37,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         return jwt.encode(to_encode, secret_bytes, algorithm="HS256")
     except Exception:
         return jwt.encode(to_encode, secret_raw, algorithm="HS256")
+
+def create_refresh_token(subject: Any) -> str:
+    """Crea un token de refresco con una duración mayor."""
+    return create_access_token(subject, expires_delta=timedelta(days=7))
 
 # Cache para las llaves JWKS de Supabase
 _jwks_cache: Dict[str, Any] = {}

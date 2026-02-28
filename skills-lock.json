@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "fastapi-templates": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "0203bfffe99d99ad78e0efd8c0223737a211b97457b3270b694efb34f48153c4"
+    }
+  }
+}

@@ -68,10 +68,12 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> U
 def require_role(allowed_roles: List[str]):
     """
     Dependencia para proteger rutas basado en roles.
-    Uso: Depends(require_role(["admin", "super_admin"]))
+    Uso: Depends(require_role(["ADMIN", "SUPER_ADMIN"]))
     """
     async def role_dependency(current_user: User = Depends(get_current_user)):
-        if current_user.role not in allowed_roles:
+        # Convertimos el rol a string para la comparación si es un Enum
+        user_role = str(current_user.role.value) if hasattr(current_user.role, 'value') else str(current_user.role)
+        if user_role.upper() not in [r.upper() for r in allowed_roles]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tienes permisos suficientes para realizar esta acción"
@@ -79,6 +81,6 @@ def require_role(allowed_roles: List[str]):
         return current_user
     return role_dependency
 
-# Versiones rápidas para roles comunes
-require_admin = require_role(["admin", "super_admin"])
-require_super_admin = require_role(["super_admin"])
+# Versiones rápidas para roles comunes (Usando mayúsculas coherentes con la DB)
+require_admin = require_role(["ADMIN", "SUPER_ADMIN"])
+require_super_admin = require_role(["SUPER_ADMIN"])

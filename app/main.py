@@ -1,97 +1,63 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import logging
-import traceback
-
-# Configuración de Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from app.core.config import settings
+from app.core.exceptions import MIDASException, midas_exception_handler, global_exception_handler
+from app.core.logging import setup_logging
 from app.api.v1 import auth as auth_v1
-from app.api.v1.admin import router as admin_router
-from app.api.v1.portal import router as portal_router
+from app.api.v1 import admin as admin_v1
+from app.api.v1 import portal as portal_v1
+from app.api.routes import project_routes as old_project_routes
+
+# Inicializar logging
+setup_logging()
 
 app = FastAPI(
-    title="GeoMaps API",
-    description="Backend para gestión de datos geoespaciales con FastAPI y Supabase Auth",
-    version="1.0.0"
+    title="MIDAS - DEBUGGING REFRESH - 12345",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    description="Backend profesional para el sistema MIDAS – Gestión de Proyectos Inmobiliarios"
 )
 
-# --- MANEJO GLOBAL DE ERRORES ---
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "message": exc.detail,
-            "detail": exc.detail,
-            "error_code": "HTTP_ERROR"
-        },
+# Configuración de CORS
+if settings.BACKEND_CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # Por defecto para desarrollo
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {str(exc)}")
-    logger.error(traceback.format_exc())
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "message": "Ha ocurrido un error interno en el servidor.",
-            "detail": "Error interno del servidor",
-            "error_code": "INTERNAL_SERVER_ERROR"
-        },
-    )
+# Manejadores de Excepciones
+app.add_exception_handler(MIDASException, midas_exception_handler)
+app.add_exception_handler(Exception, global_exception_handler)
 
-# --- API ROUTERS (Multi-Tier Architecture) ---
+# Rutas de Autenticación de v1 (Supabase Sync)
+app.include_router(auth_v1.router, prefix=f"{settings.API_V1_STR}")
 
-# TIER 1: Autenticación & Seguridad (Público/Compartido)
-app.include_router(auth_v1.router, prefix="/api/v1")
+# Rutas de Admin y Portal de v1
+app.include_router(admin_v1.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(portal_v1.router, prefix=f"{settings.API_V1_STR}")
 
-# TIER 2: Portal Público (Geoportal)
-app.include_router(portal_router, prefix="/api/v1")
-
-# TIER 3: Panel Administrativo (Admin)
-app.include_router(admin_router, prefix="/api/v1")
-
-# --- MIDDLEWARE & CORS ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# --- ENDPOINTS DE SISTEMA ---
-
-@app.get("/api/health")
-async def health_check():
-    """Endpoint para monitoreo de salud del servicio."""
-    return {
-        "status": "healthy", 
-        "service": "GeoMaps API",
-        "version": "1.0.0"
-    }
+# Mantener project_routes por ahora si no están migrados a v1
+app.include_router(old_project_routes.router, prefix=f"{settings.API_V1_STR}/projects", tags=["projects"])
 
 @app.get("/")
 async def root():
-    """Punto de entrada informativo de la API."""
     return {
-        "app": "GeoMaps Intelligence API",
-        "environment": "production" if not settings.FRONTEND_URL.startswith("http://localhost") else "development",
-        "endpoints": {
-            "auth": "/api/v1/auth",
-            "admin": "/api/v1/admin",
-            "portal": "/api/v1/portal",
-            "docs": "/docs"
-        }
+        "message": "Bienvenido a la API de MIDAS",
+        "version": "1.0.0",
+        "status": "online"
     }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
