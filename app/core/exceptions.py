@@ -70,7 +70,11 @@ async def midas_exception_handler(request: Request, exc: MIDASException):
         }
     )
 
+import traceback
+
 async def global_exception_handler(request: Request, exc: Exception):
+    print("GLOBAL EXCEPTION:", exc)
+    traceback.print_exc()
     # Registrar la excepción completa aquí en producción
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -78,7 +82,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "success": False,
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
-                "message": "Un error interno ha ocurrido en el servidor"
+                "message": f"Un error interno ha ocurrido en el servidor: {str(exc)}"
             }
         }
     )

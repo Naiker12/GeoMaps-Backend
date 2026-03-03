@@ -1,83 +1,93 @@
-# GeoMaps Backend
+# 🔱 GeoMaps Backend
 
-## Descripción
-GeoMaps Backend es una API robusta diseñada para la gestión de datos geoespaciales, predios y proyectos. Este proyecto utiliza FastAPI como framework principal, siguiendo principios de Arquitectura Limpia (Clean Architecture) y Diseño Orientado al Dominio (DDD) para garantizar escalabilidad, mantenibilidad y desacoplamiento de componentes.
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql)
+![PostGIS](https://img.shields.io/badge/PostGIS-336699?style=for-the-badge&logo=postgis)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=for-the-badge&logo=sqlalchemy)
 
-## Arquitectura del Proyecto
-La aplicación está organizada en capas bien definidas para separar las responsabilidades:
-
-### 1. Capa de API (api/)
-Contiene los puntos de entrada (endpoints) de la aplicación. Se encarga de la validación de entrada, documentación automática con OpenAPI y el enrutamiento de peticiones hacia la capa de aplicación.
-
-### 2. Capa de Aplicación (application/)
-Orquesta el flujo de datos. Aquí se definen los casos de uso específicos de la aplicación y se coordina la interacción entre el dominio y la infraestructura.
-
-### 3. Capa de Dominio (domain/)
-Es el corazón del sistema.
-- **Models**: Define las entidades y objetos de valor (Pydantic).
-- **Services**: Contiene la lógica de negocio pura que no pertenece a una sola entidad.
-
-### 4. Capa de Infraestructura (infrastructure/)
-Maneja las implementaciones técnicas y externas:
-- **Database**: Configuración de SQLAlchemy/PostgreSQL.
-- **Repositories**: Implementación del acceso a datos, permitiendo cambiar la persistencia sin afectar al dominio.
-- **Cache**: Manejo de estados temporales o performance (Redis).
-
-### 5. Capa Core (core/)
-Configuraciones globales del sistema, manejo de seguridad (JWT), hashing de contraseñas y dependencias transversales.
+**GeoMaps** es una plataforma backend de alto rendimiento diseñada para la gestión integral de proyectos inmobiliarios y datos geoespaciales. Construida sobre los cimientos de **FastAPI**, **PostgreSQL** y **PostGIS**, ofrece una infraestructura robusta para la visualización 3D, métricas financieras y control administrativo de predios.
 
 ---
 
-## Requisitos Previos
-- Python 3.10 o superior.
-- PostgreSQL con extensión PostGIS (recomendado para datos geográficos).
-- Redis (opcional para cache).
+## 🏗️ Arquitectura del Sistema
 
-## Instalación
+El proyecto implementa una **Arquitectura Limpia (Clean Architecture)** combinada con principios de **Diseño Orientado al Dominio (DDD)**, ahora potenciada con **procesamiento asíncrono** total.
 
-1. **Clonar el repositorio**:
+- **`app/api`**: Puntos de entrada (REST Endpoints) asíncronos v1.
+- **`app/application`**: Casos de uso asíncronos y orquestación de servicios.
+- **`app/domain`**: Modelos lógicos, entidades Pydantic y lógica de negocio pura.
+- **`app/infrastructure`**: Repositorios basados en `AsyncSession` y sincronización con Supabase.
+- **`app/core`**: Seguridad JWT, configuraciones globales y gestión de archivos.
+
+---
+
+## 🚀 Funcionalidades Principales
+
+### 📍 Gestión Geoespacial Avanzada
+- **Motor Asíncrono**: Refactorización completa a `SQLAlchemy Async` para manejo masivo de peticiones concurrentes.
+- **Soporte PostGIS**: Manejo complejo de geometrías, puntos y polígonos con GeoAlchemy2.
+- **API de Capas (Layers)**: Endpoints dedicados para la obtención dinámica de archivos **Shapefile**, **XML** y **GeoJSON**.
+- **Servidor de Features**: Conversión y entrega de datos geográficos en tiempo real para el visor del mapa.
+
+### 📊 Inteligencia Inmobiliaria
+- **Métricas de Proyecto**: Gestión de áreas, niveles, unidades y seguimiento progresivo.
+- **Módulo Financiero**: Control multimoneda (COP, USD, EUR) de inversiones y precios unitarios.
+- **Dashboard Admin**: Control total sobre la visibilidad de capas, prioridades y categorización dinámica.
+
+### 🔐 Seguridad y Auth
+- **Integración Supabase**: Sincronización transparente de usuarios y autenticación segura.
+- **RBAC**: Control de acceso granular (Admin, Superadmin, Public).
+
+### 🖼️ Recursos Multimedia y 3D
+- Gestión centralizada de archivos fuente geográficos.
+- Almacenamiento y servicio de modelados 3D para integración con ArcGIS.
+- Configuración de estilos visuales (colores, opacidad) persistente en base de datos.
+
+---
+
+## 🛠️ Stack Tecnológico
+
+- **Framework**: FastAPI (**Totalmente Asíncrono**)
+- **ORM & DB**: SQLAlchemy 2.0 (Async) + PostgreSQL / PostGIS
+- **Migraciones**: Alembic
+- **Procesamiento Geo**: GeoAlchemy2, Shapely, Pydantic v2
+- **Auth**: Supabase Auth Integration
+
+---
+
+## ⚙️ Configuración y Ejecución
+
+### Requisitos Previos
+- Python 3.10+
+- PostgreSQL v14+ con extensión PostGIS instalada.
+
+### Instalación Rápida
+
+1. **Clonar e Instalar**:
    ```bash
-   git clone <url-del-repositorio>
+   git clone <repo-url>
    cd GeoMaps-Backend
-   ```
-
-2. **Crear y activar un entorno virtual**:
-   En Windows:
-   ```bash
    python -m venv venv
-   .\venv\Scripts\activate
-   ```
-   En Linux/macOS:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. **Instalar dependencias**:
-   ```bash
+   source venv/bin/activate  # En Windows: .\venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-4. **Configurar variables de entorno**:
-   Crea un archivo `.env` en la raíz del proyecto basándote en las necesidades de `app/core/config.py`.
+2. **Variables de Entorno**:
+   Configurar `.env` con las credenciales de base de datos asíncrona (`postgresql+asyncpg://...`) y tokens de Supabase.
+
+3. **Ejecutar Servidor**:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
 
 ---
 
-## Ejecución
+## 📖 Documentación Automática
 
-Para iniciar el servidor de desarrollo, utiliza el siguiente comando:
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
+---
 
-- La API estará disponible en: [http://localhost:8000](http://localhost:8000)
-- La documentación interactiva (Swagger UI) en: [http://localhost:8000/docs](http://localhost:8000/docs)
-- La documentación alternativa (ReDoc) en: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-
-## Tecnologías Principales
-- **FastApi**: Framework web de alto rendimiento.
-- **SQLAlchemy & Alembic**: ORM y gestión de migraciones de base de datos.
-- **GeoAlchemy2 & Shapely**: Manejo de datos geométricos y geográficos.
-- **Pydantic**: Validación de datos y gestión de configuraciones.
-- **Python-Jose & Passlib**: Seguridad y autenticación.
+Developed with ❤️ for **GeoMaps** ecosystem.
+Plataforma de Alto Rendimiento para Inteligencia Territorial.

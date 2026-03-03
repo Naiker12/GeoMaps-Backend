@@ -6,6 +6,7 @@ from app.core.logging import setup_logging
 from app.api.v1 import auth as auth_v1
 from app.api.v1 import admin as admin_v1
 from app.api.v1 import portal as portal_v1
+from app.api.v1 import layers as layers_v1
 from app.api.routes import project_routes as old_project_routes
 
 # Inicializar logging
@@ -46,6 +47,9 @@ app.include_router(auth_v1.router, prefix=f"{settings.API_V1_STR}")
 # Rutas de Admin y Portal de v1
 app.include_router(admin_v1.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(portal_v1.router, prefix=f"{settings.API_V1_STR}")
+
+# Rutas de Capas
+app.include_router(layers_v1.router, prefix=f"{settings.API_V1_STR}/layers", tags=["layers"])
 
 # Mantener project_routes por ahora si no están migrados a v1
 app.include_router(old_project_routes.router, prefix=f"{settings.API_V1_STR}/projects", tags=["projects"])
