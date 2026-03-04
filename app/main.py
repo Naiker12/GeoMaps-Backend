@@ -19,23 +19,23 @@ app = FastAPI(
 )
 
 # Configuración de CORS
-if settings.BACKEND_CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    # Por defecto para desarrollo
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+raw_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS] if settings.BACKEND_CORS_ORIGINS else []
+if settings.FRONTEND_URL:
+    raw_origins.append(settings.FRONTEND_URL.rstrip("/"))
+
+# Filtrar "*" ya que es incompatible con allow_credentials=True
+origins = [o for o in raw_origins if o != "*"]
+if not origins:
+    # Fallback de seguridad para desarrollo
+    origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Manejadores de Excepciones
 app.add_exception_handler(MIDASException, midas_exception_handler)
@@ -59,7 +59,8 @@ async def root():
     return {
         "message": "Bienvenido a la API de MIDAS",
         "version": "1.0.0",
-        "status": "online"
+        "status": "online",
+        "debug": "CORS_FIXED_V3"
     }
 
 if __name__ == "__main__":

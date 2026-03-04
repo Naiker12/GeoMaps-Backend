@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 import uuid
-from typing import List, Any
+from typing import List, Any, Optional
 import json
 
-from app.api.deps import get_db, get_current_active_user
+from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.db.models.user import User
 from app.schemas.layer import LayerResponse, LayerCreate, FeatureCollectionSchema
 from app.services.layer_service import LayerService
@@ -52,13 +52,16 @@ async def upload_layer(
 
 @router.get("/", response_model=List[LayerResponse])
 async def list_layers(
-    visibility: str = None,
+    visibility: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
-    Obtiene todas las capas, con opción a filtrar por visibilidad.
+    Obtiene todas las capas. Si el usuario no está autenticado, solo devuelve las públicas.
     """
+    if current_user is None:
+        visibility = "public"
+        
     layer_service = LayerService(db)
     layers = await layer_service.list_layers(visibility=visibility)
     return layers
