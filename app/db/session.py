@@ -4,8 +4,13 @@ from app.core.config import settings
 
 # Crear motor asíncrono
 # Nota: Asegurarse de que DATABASE_URL esté en formato asíncrono: postgresql+psycopg://...
+# Asegurar formato postgresql+psycopg:// para async
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
 engine = create_async_engine(
-    settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg://"),
+    db_url,
     echo=False,
     pool_pre_ping=True,
     pool_size=10,

@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+import sys
+import asyncio
+
+# En Windows, psycopg v3 asíncrono prefiere SelectorEventLoopPolicy en algunos entornos
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from app.core.exceptions import MIDASException, midas_exception_handler, global_exception_handler
 from app.core.logging import setup_logging
 from app.api.v1 import auth as auth_v1
@@ -12,6 +18,12 @@ from app.api.routes import project_routes as old_project_routes
 
 # Inicializar logging
 setup_logging()
+
+# Logger para errores fatales
+import logging
+file_handler = logging.FileHandler("server_debug.log")
+file_handler.setLevel(logging.ERROR)
+logging.getLogger().addHandler(file_handler)
 
 app = FastAPI(
     title="GEOMAPS - DEBUGGING REFRESH - 12345",
