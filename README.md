@@ -65,6 +65,7 @@ El backend sigue una **Arquitectura Limpia (Clean Architecture)** con patrones *
 1.  **Entorno Virtual**:
     ```bash
     python -m venv venv
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
     .\venv\Scripts\activate  # Windows
     source venv/bin/activate  # Linux/Mac
     ```
