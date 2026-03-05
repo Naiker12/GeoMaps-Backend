@@ -11,9 +11,9 @@ from geoalchemy2 import Geometry
 from app.db.session import Base
 
 class VisibilityEnum(str, enum.Enum):
-    PRIVATE = "private"
-    TEAM = "team"
-    PUBLIC = "public"
+    PRIVATE = "PRIVATE"
+    TEAM = "TEAM"
+    PUBLIC = "PUBLIC"
 
 class Layer(Base):
     """Tabla principal de metadatos de las capas GIS."""

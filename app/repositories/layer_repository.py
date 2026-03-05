@@ -1,6 +1,6 @@
 import uuid
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 from sqlalchemy import text, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.layer import Layer, LayerFeature
@@ -69,26 +69,80 @@ class LayerRepository:
         """
         Retorna las geometrías de una capa como Point/Polygons mapeados en un GeoJSON (FeatureCollection).
         """
-        query = """
-        SELECT id, properties, ST_AsGeoJSON(geom) as geometry
-        FROM layer_features
-        WHERE layer_id = :layer_id
-        """
+        # Usamos func.ST_AsGeoJSON para el procesamiento GIS
+        from sqlalchemy import func
+        stmt = select(
+            LayerFeature.id, 
+            LayerFeature.properties, 
+            func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
+        ).where(LayerFeature.layer_id == layer_id)
         
-        result = await self.db.execute(text(query), {"layer_id": str(layer_id)})
+        result = await self.db.execute(stmt)
+        rows = result.mappings().all()
         
         features = []
-        for row in result:
+        for row in rows:
             features.append({
                 "type": "Feature",
-                "id": row._mapping['id'],
-                "properties": row._mapping['properties'],
-                "geometry": json.loads(row._mapping['geometry'])
+                "id": row['id'],
+                "properties": row['properties'],
+                "geometry": json.loads(row['geometry'])
             })
             
         return {
             "type": "FeatureCollection",
             "features": features
+        }
+
+    async def get_features_properties(self, layer_ids: List[uuid.UUID]) -> List[dict]:
+        """
+        Retorna solo las propiedades de las features para las capas especificadas.
+        Optimizado para estadísticas dinámicas.
+        """
+        stmt = select(LayerFeature.properties).where(LayerFeature.layer_id.in_(layer_ids))
+        result = await self.db.execute(stmt)
+        return [{"properties": p} for p in result.scalars().all()]
+
+    async def get_feature_by_id(self, feature_id: Any) -> Optional[dict]:
+        """
+        Retorna una sola feature con sus propiedades y geometría.
+        """
+        from sqlalchemy import func
+        # Intentar convertir feature_id a UUID si es necesario
+        try:
+            f_id = uuid.UUID(str(feature_id))
+            stmt = select(
+                LayerFeature.id,
+                LayerFeature.layer_id,
+                LayerFeature.properties,
+                LayerFeature.created_at,
+                func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
+            ).where(LayerFeature.id == f_id)
+        except (ValueError, TypeError):
+            # Si no es UUID, intentar como entero si el ID en DB lo fuera
+            try:
+                f_id_int = int(str(feature_id))
+                stmt = select(
+                    LayerFeature.id,
+                    LayerFeature.layer_id,
+                    LayerFeature.properties,
+                    LayerFeature.created_at,
+                    func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
+                ).where(LayerFeature.id == f_id_int)
+            except ValueError:
+                return None
+
+        result = await self.db.execute(stmt)
+        row = result.mappings().first()
+        if not row:
+            return None
+            
+        return {
+            "id": row['id'],
+            "layer_id": row['layer_id'],
+            "properties": row['properties'],
+            "lastUpdate": row['created_at'],
+            "geometry": json.loads(row['geometry'])
         }
 
     async def delete_layer(self, layer_id: uuid.UUID) -> bool:

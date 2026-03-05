@@ -71,7 +71,7 @@ class ProjectLocation(Base):
     
     latitude: Mapped[Optional[float]] = mapped_column(Float)
     longitude: Mapped[Optional[float]] = mapped_column(Float)
-    geometry = mapped_column(Geometry("GEOMETRY", srid=4326))
+    geometry = mapped_column(Geometry("GEOMETRY", srid=4326), index=True)
     
     external_location_url: Mapped[Optional[str]] = mapped_column(String(500))
     shapefile_url: Mapped[Optional[str]] = mapped_column(String(500))
@@ -181,7 +181,7 @@ class ProjectLot(Base):
     status: Mapped[str] = mapped_column(String(50), default="Disponible") # Disponible, Vendido, Reservado, Proceso
     price: Mapped[Optional[float]] = mapped_column(Numeric)
     
-    geometry: Mapped[Optional[Any]] = mapped_column(Geometry("GEOMETRY", srid=4326))
+    geometry: Mapped[Optional[Any]] = mapped_column(Geometry("GEOMETRY", srid=4326), index=True)
     custom_data: Mapped[Optional[dict]] = mapped_column(JSON)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

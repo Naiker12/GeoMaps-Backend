@@ -8,13 +8,13 @@ from typing import List, Dict, Any
 import geopandas as gpd
 from fastapi import UploadFile, HTTPException
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.layer_repository import LayerRepository
 from app.schemas.layer import LayerCreate
 from app.services.storage_service import storage_service
 
 class LayerService:
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.repository = LayerRepository(db)
         self.storage = storage_service
 
@@ -125,6 +125,15 @@ class LayerService:
             raise HTTPException(status_code=404, detail="La capa no existe.")
             
         return await self.repository.get_features_as_geojson(layer_id)
+
+    async def get_features_properties(self, layer_ids: List[uuid.UUID]) -> List[dict]:
+        return await self.repository.get_features_properties(layer_ids)
+
+    async def get_feature_by_id(self, feature_id: Any) -> dict:
+        feature = await self.repository.get_feature_by_id(feature_id)
+        if not feature:
+            raise HTTPException(status_code=404, detail="La entidad no existe.")
+        return feature
 
     async def list_layers(self, visibility: str = None) -> List[Any]:
         return await self.repository.get_all(visibility=visibility)

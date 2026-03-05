@@ -35,6 +35,7 @@ class FeatureGeometry(BaseModel):
 
 class FeatureSchema(BaseModel):
     type: str = "Feature"
+    id: Optional[Any] = None
     geometry: FeatureGeometry
     properties: Dict[str, Any]
 

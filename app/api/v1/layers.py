@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 from typing import List, Any, Optional
 import json
@@ -17,9 +17,9 @@ async def upload_layer(
     description: str = Form(None),
     category: str = Form(None),
     source: str = Form(None),
-    visibility: str = Form("private"),
+    visibility: str = Form("PRIVATE"),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -46,33 +46,56 @@ async def upload_layer(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        # Aquí se capturan errores de GeoPandas o base de datos.
         raise HTTPException(status_code=500, detail=f"Error validando o procesando capa: {str(e)}")
 
 
 @router.get("/", response_model=List[LayerResponse])
 async def list_layers(
     visibility: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Obtiene todas las capas. Si el usuario no está autenticado, solo devuelve las públicas.
     """
     if current_user is None:
-        visibility = "public"
+        visibility = "PUBLIC"
         
     layer_service = LayerService(db)
     layers = await layer_service.list_layers(visibility=visibility)
     return layers
 
+@router.get("/features/properties", response_model=List[dict])
+async def get_layers_features_properties(
+    layer_ids: str = Query(..., description="Comma separated layer IDs"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Obtiene solo las propiedades de las features de múltiples capas.
+    """
+    try:
+        id_list = [uuid.UUID(lid.strip()) for lid in layer_ids.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de IDs de capa inválido.")
+        
+    layer_service = LayerService(db)
+    return await layer_service.get_features_properties(id_list)
+
+@router.get("/features/{feature_id}", response_model=dict)
+async def get_feature_detail(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Obtiene el detalle de una sola entidad (propiedades + geometría).
+    """
+    layer_service = LayerService(db)
+    return await layer_service.get_feature_by_id(feature_id)
 
 @router.get("/{layer_id}/features", response_model=FeatureCollectionSchema)
 async def get_layer_geojson(
     layer_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    # Descomentar e importar User si require auth, lo dejamos libre o validado según caso de uso
-    # current_user: User = Depends(get_current_active_user)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Obtiene un FeatureCollection con todas las geometrías de la capa.
@@ -82,16 +105,14 @@ async def get_layer_geojson(
     geojson_data = await layer_service.get_layer_geojson(layer_id)
     return geojson_data
 
-
 @router.delete("/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_layer(
     layer_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
     Elimina los metadatos y features (on delete cascade) de la base de datos.
-    Nota: Se debe borrar también de Storage si se desea limpieza total.
     """
     layer_service = LayerService(db)
     await layer_service.delete_layer(layer_id)
