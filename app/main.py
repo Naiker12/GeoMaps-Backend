@@ -14,7 +14,7 @@ from app.api.routes import project_routes as old_project_routes
 setup_logging()
 
 app = FastAPI(
-    title="MIDAS - DEBUGGING REFRESH - 12345",
+    title="GEOMAPS - DEBUGGING REFRESH - 12345",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     description="Backend profesional para el sistema MIDAS – Gestión de Proyectos Inmobiliarios"
 )

@@ -9,7 +9,7 @@ class UserBase(BaseModel):
     role: str = "USER" # USER, ADMIN, SUPER_ADMIN
 
 class UserCreate(UserBase):
-    id: UUID # El UUID que viene de Supabase Auth
+    id: UUID 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
