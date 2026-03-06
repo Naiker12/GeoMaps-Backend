@@ -1,91 +1,129 @@
-# 🔱 GeoMaps Backend: Motor de Inteligencia Territorial
+# GEOMAPS - Backend API
 
-![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql)
-![PostGIS](https://img.shields.io/badge/PostGIS-336699?style=for-the-badge&logo=postgis)
-![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=for-the-badge&logo=sqlalchemy)
-![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+**GEOMAPS Backend** es el motor de alto rendimiento que sustenta la plataforma GEOMAPS, proporcionando una API robusta para la gestión, procesamiento y visualización de datos geoespaciales complejos. Diseñado bajo principios de escalabilidad y mantenibilidad, este backend permite realizar consultas espaciales avanzadas, gestionar autenticación segura y servir metadatos territoriales en tiempo real.
 
-**GeoMaps Backend** es el núcleo de procesamiento de alto rendimiento para el sistema MIDAS. Diseñado para gestionar datos geoespaciales masivos, integrarlos con métricas inmobiliarias y servirlos de manera eficiente a través de una API REST totalmente asíncrona.
+Este repositorio constituye el núcleo lógico del ecosistema **GEOMAPS**, integrando potentes herramientas de análisis geográfico con una arquitectura backend moderna.
 
 ---
 
-## 🚀 Flujos del Sistema (Cómo Funciona cada Proceso)
+##  Características Principales
 
-### 🔐 1. Flujo de Autenticación y Seguridad (Supabase Sync)
-- **Proceso:** El backend se sincroniza con **Supabase Auth**. Cuando un usuario se registra o inicia sesión, el backend valida el JWT y gestiona los permisos mediante **RBAC** (Role-Based Access Control).
-- **Implementación:** Se utiliza un middleware de seguridad y decoradores de FastAPI para proteger rutas de administración y portales privados.
-
-### 📍 2. Flujo de Gestión Geoespacial (Layers)
-- **Creación:** Se registran capas (Layers) con metadatos (categoría, visibilidad, fuente).
-- **Ingesta Masiva:** Implementamos un sistema de **Bulk Insert** en `LayerRepository` que procesa miles de geometrías simultáneamente convirtiendo formatos WKT a objetos PostGIS mediante `ST_GeomFromText`.
-- **Servicio GeoJSON:** El motor extrae las geometrías de la base de datos y las transforma en tiempo real a objetos **GeoJSON (FeatureCollection)** utilizando funciones nativas de PostGIS como `ST_AsGeoJSON`.
-
-### 🔍 3. Flujo de Búsqueda Espacial
-- **Proceso:** Permite localizar predios o características geográficas basadas en coordenadas o filtros de propiedades.
-- **Tecnología:** Utiliza los índices espaciales de **PostGIS** para realizar consultas ultra rápidas sobre millones de registros.
-
-### 📊 4. Flujo de Estadísticas Dinámicas
-- **Proceso:** Recopila propiedades de múltiples capas para generar métricas financieras y de área.
-- **Mecanismo:** Consultas optimizadas que solo extraen el campo `properties` (JSONB) para alimentar gráficos y tableros de control en el frontend.
+| Característica | Descripción |
+| :--- | :--- |
+| **Consultas Espaciales** | Soporte nativo para operaciones geométricas complejas (intersecciones, buffers, distancias) mediante PostGIS y GeoAlchemy2. |
+| **API RESTful de Alta Velocidad** | Implementación asíncrona con **FastAPI** para una baja latencia y alta concurrencia. |
+| **Integración con Supabase** | Sincronización de autenticación y persistencia de datos en tiempo real. |
+| **Procesamiento de Datos** | Uso de **GeoPandas** y **Shapely** para manipulación avanzada de capas vectoriales y sistemas de coordenadas. |
+| **Arquitectura de Repositorios** | Abstracción de la capa de datos para facilitar el intercambio de motores de persistencia y mejorar la testabilidad. |
 
 ---
 
-## 🛠️ Stack Tecnológico y Librerías
+##  Arquitectura Tecnológica
 
-Para lograr este rendimiento, hemos seleccionado las mejores herramientas del ecosistema Python:
+El stack ha sido seleccionado para ofrecer máxima precisión geográfica y eficiencia en el manejo de grandes volúmenes de datos:
 
-| Librería | Función Principal | Por qué se usó |
-| :--- | :--- | :--- |
-| **FastAPI** | Framework Web | Velocidad extrema y soporte nativo para `async`/`await`. |
-| **SQLAlchemy 2.0** | ORM Asíncrono | Manejo robusto de la base de datos con tipado fuerte y sesiones asíncronas. |
-| **GeoAlchemy2** | Extensión Espacial | Puente perfecto entre SQLAlchemy y PostGIS para tipos de datos geométricos. |
-| **PostGIS** | Base de Datos Espacial | El estándar de la industria para almacenamiento y análisis geográfico. |
-| **GeoPandas & Shapely** | Procesamiento GIS | Manipulación de datos vectoriales y validación de geometrías en el backend. |
-| **Pydantic v2** | Validación de Datos | Garantiza que cada entrada y salida de la API cumpla con el esquema definido. |
-| **Alembic** | Migraciones | Control de versiones para el esquema de la base de datos. |
-
----
-
-## 🏗️ Implementación y Arquitectura (Cómo se hizo)
-
-El backend sigue una **Arquitectura Limpia (Clean Architecture)** con patrones **DDD (Domain-Driven Design)** para asegurar la escalabilidad:
-
-1.  **Patrón Repositorio:** Centralizamos el acceso a datos en `repositories/`. Por ejemplo, `LayerRepository` encapsula toda la complejidad de las consultas SQL y transformaciones GIS.
-2.  **Inyección de Dependencias:** Usamos el sistema de dependencias de FastAPI para gestionar sesiones de base de datos (`AsyncSession`) y servicios de forma desacoplada.
-3.  **Procesamiento Asíncrono:** Todo el I/O (Base de datos, Redis, API Externas) se maneja con `asyncio`, permitiendo que el servidor maneje cientos de peticiones concurrentes sin bloquearse.
-4.  **Manejo de Errores Global:** Implementamos `MIDASException` para capturar errores de lógica de negocio y devolver respuestas estandarizadas al frontend.
+| Tecnología | Rol en el Proyecto |
+| :--- | :--- |
+| **Python 3.10+** | Lenguaje núcleo por su madurez en el ecosistema de ciencia de datos y SIG. |
+| **FastAPI** | Framework web moderno para la construcción de APIs con validación automática (Pydantic). |
+| **PostgreSQL + PostGIS** | Base de datos relacional con extensión espacial para almacenamiento de geometrías. |
+| **SQLAlchemy 2.0** | ORM avanzado para una gestión de base de datos eficiente y segura. |
+| **GeoAlchemy2** | Extensión de SQLAlchemy para el manejo transparente de tipos espaciales. |
+| **Alembic** | Sistema de migraciones para el control de versiones del esquema de la base de datos. |
+| **Supabase** | Backend-as-a-Service para gestión de usuarios y almacenamiento de archivos. |
+| **Redis** | Capa de caché (opcional) para optimizar consultas frecuentes. |
 
 ---
 
-## ⚙️ Configuración y Ejecución
+##  Análisis de la Arquitectura (Clean Architecture)
 
-### Instalación en Desarrollo
+La arquitectura de **GEOMAPS Backend** sigue un patrón de capas desacopladas, lo que permite que la lógica de negocio permanezca aislada de los detalles de implementación (como la base de datos o APIs externas).
 
-1.  **Entorno Virtual**:
-    ```bash
-    python -m venv venv
-    .\venv\Scripts\activate  # Windows
-    source venv/bin/activate  # Linux/Mac
-    ```
-2.  **Dependencias**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  **Variables de Entorno**:
-    Crea un archivo `.env` basado en la configuración del servidor (Database URL, Supabase Keys, etc).
-4.  **Ejecución**:
-    ```bash
-    uvicorn app.main:app --reload --port 8000
-    ```
+### 1. Capa de API y Rutas (`app/api`)
+Es el punto de entrada de las solicitudes. Define los endpoints, maneja el versionamiento (v1) y valida los datos de entrada/salida utilizando **Pydantic Schemas**.
+- **Auth Sync:** Sincronización transparente con los tokens JWT de Supabase.
+- **Layers & Search:** Endpoints optimizados para la recuperación de capas y búsquedas territoriales por código catastral o coordenadas.
+
+### 2. Capa de Dominio y Entidades (`app/domain`)
+Contiene el corazón del negocio. Aquí se definen los modelos de dominio que representan las entidades del territorio y las reglas que las gobiernan, independientemente de cómo se guarden en la base de datos.
+
+### 3. Capa de Repositorios (`app/repositories`)
+Implementa el **Repository Pattern**. Esta capa abstrae todas las operaciones de lectura y escritura.
+- **Consultas PostGIS:** Las consultas de proximidad y análisis espacial se encapsulan aquí para mantener las rutas de la API limpias.
+- **Eficiencia:** Implementación de índices espaciales y optimización de queries SQL.
+
+### 4. Capa de Infraestructura (`app/infrastructure`)
+Maneja las comunicaciones externas:
+- **Database Client:** Gestión de sesiones y conexiones mediante SQLAlchemy.
+- **Supabase Integration:** Clientes para interacción con storage y auth externo.
+
+---
+
+##  Estructura del Proyecto
+
+```bash
+app/
+├── api/            # Rutas de la API, endpoints (v1) y dependencias.
+├── application/    # Casos de uso y lógica de aplicación.
+├── core/           # Configuración global, seguridad, logging y excepciones.
+├── db/             # Sesión de base de datos y configuración del motor.
+├── domain/         # Modelos de dominio y lógica de negocio pura.
+├── infrastructure/ # Adaptadores externos (Supabase, Mail, etc.).
+├── repositories/   # Implementación de persistencia de datos (SQLAlchemy).
+├── schemas/        # Modelos Pydantic para validación y serialización.
+└── services/       # Servicios transversales de lógica compleja.
+```
 
 ---
 
-## 📖 Documentación
+##  Instalación y Configuración
 
-Accede a la documentación interactiva una vez el servidor esté corriendo:
-- **Swagger**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+### Prerrequisitos
+- **Python 3.10+**
+- **PostgreSQL** con extensión **PostGIS**.
+- **Virtualenv** o similar.
+
+### Pasos para el levantamiento local
+
+1. **Clonar el repositorio:**
+   ```bash
+   git clone https://github.com/Naiker12/GeoMaps-Backend.git
+   cd geomaps-backend
+   ```
+
+2. **Crear e hidratar el entorno virtual:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # En Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. **Configurar variables de entorno:**
+   Copia el archivo `.env.example` (si existe) o crea un `.env` con las siguientes claves:
+   ```env
+   DATABASE_URL=postgresql+psycopg://user:password@localhost/geomaps_db
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=your-anon-key
+   SECRET_KEY=your-secret-key
+   ```
+
+4. **Ejecutar migraciones:**
+   ```bash
+   alembic upgrade head
+   ```
+
+5. **Iniciar el servidor de desarrollo:**
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+   La API estará documentada y lista en `http://localhost:8000/docs`.
 
 ---
-Desarrollado con precisión técnica para el ecosistema **MIDAS / GeoMaps**.
+
+##  Comandos Útiles
+
+- **Crear nueva migración:** `alembic revision --autogenerate -m "descripcion"`
+- **Ejecutar tests:** `pytest`
+- **Linting:** `flake8 app`
+
+---
