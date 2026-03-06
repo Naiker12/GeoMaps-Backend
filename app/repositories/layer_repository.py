@@ -28,13 +28,31 @@ class LayerRepository:
             description=layer_in.description,
             category=layer_in.category,
             source=layer_in.source,
-            visibility=layer_in.visibility,
+            visibility=layer_in.visibility.upper(), # Convert to uppercase for Enum
+            map_color=layer_in.map_color,
+            map_opacity=layer_in.map_opacity,
             geometry_type=geometry_type,
             source_type=source_type,
             file_url=file_url,
             created_by=user_id
         )
         self.db.add(db_layer)
+        await self.db.commit()
+        await self.db.refresh(db_layer)
+        return db_layer
+
+    async def update_layer(self, layer_id: uuid.UUID, layer_in: dict) -> Optional[Layer]:
+        db_layer = await self.get_by_id(layer_id)
+        if not db_layer:
+            return None
+            
+        update_data = layer_in
+        for field, value in update_data.items():
+            if value is not None:
+                if field == "visibility":
+                    value = value.upper()
+                setattr(db_layer, field, value)
+        
         await self.db.commit()
         await self.db.refresh(db_layer)
         return db_layer

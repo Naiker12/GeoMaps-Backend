@@ -18,6 +18,8 @@ async def upload_layer(
     category: str = Form(None),
     source: str = Form(None),
     visibility: str = Form("PRIVATE"),
+    map_color: str = Form("#3ECF8E"),
+    map_opacity: float = Form(0.8),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -31,7 +33,9 @@ async def upload_layer(
         description=description,
         category=category,
         source=source,
-        visibility=visibility
+        visibility=visibility,
+        map_color=map_color,
+        map_opacity=map_opacity
     )
     
     layer_service = LayerService(db)
@@ -64,6 +68,39 @@ async def list_layers(
     layer_service = LayerService(db)
     layers = await layer_service.list_layers(visibility=visibility)
     return layers
+
+@router.patch("/{layer_id}", response_model=LayerResponse)
+async def update_layer(
+    layer_id: uuid.UUID,
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None),
+    map_color: Optional[str] = Form(None),
+    map_opacity: Optional[float] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Actualiza metadatos de una capa (PATCH con FormData).
+    """
+    update_data = {}
+    if name is not None: update_data["name"] = name
+    if description is not None: update_data["description"] = description
+    if category is not None: update_data["category"] = category
+    if source is not None: update_data["source"] = source
+    if visibility is not None: update_data["visibility"] = visibility
+    if map_color is not None: update_data["map_color"] = map_color
+    if map_opacity is not None: update_data["map_opacity"] = map_opacity
+
+    layer_service = LayerService(db)
+    updated_layer = await layer_service.update_layer(layer_id, update_data)
+    
+    if not updated_layer:
+        raise HTTPException(status_code=404, detail="Capa no encontrada")
+        
+    return updated_layer
 
 @router.get("/features/properties", response_model=List[dict])
 async def get_layers_features_properties(

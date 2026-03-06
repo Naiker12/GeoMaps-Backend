@@ -12,7 +12,8 @@ class StorageService:
         self.buckets = {
             "images": "Imagen",
             "models": "Imagen3d",
-            "shapefiles": "Shefile"
+            "shapefiles": "Shefile",
+            "downloads": "Shefile"
         }
 
     async def upload_file(self, file: UploadFile, bucket_type: str) -> str:

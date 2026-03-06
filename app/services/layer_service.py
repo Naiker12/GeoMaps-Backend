@@ -4,7 +4,7 @@ import shutil
 import zipfile
 import tempfile
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import geopandas as gpd
 from fastapi import UploadFile, HTTPException
 
@@ -134,6 +134,9 @@ class LayerService:
         if not feature:
             raise HTTPException(status_code=404, detail="La entidad no existe.")
         return feature
+
+    async def update_layer(self, layer_id: uuid.UUID, layer_in: Dict[str, Any]) -> Optional[Any]:
+        return await self.repository.update_layer(layer_id, layer_in)
 
     async def list_layers(self, visibility: str = None) -> List[Any]:
         return await self.repository.get_all(visibility=visibility)

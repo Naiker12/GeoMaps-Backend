@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, Any
 from sqlalchemy.dialects.postgresql import JSONB
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Enum, BigInteger
+from sqlalchemy import String, Text, DateTime, ForeignKey, Enum, BigInteger, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
@@ -31,6 +31,8 @@ class Layer(Base):
         default=VisibilityEnum.PRIVATE,
         nullable=False
     )
+    map_color: Mapped[Optional[str]] = mapped_column(String(50), default="#3ECF8E")
+    map_opacity: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
     file_url: Mapped[Optional[str]] = mapped_column(Text) # Ubicación en Supabase Storage
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     

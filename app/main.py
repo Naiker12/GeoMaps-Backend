@@ -14,6 +14,7 @@ from app.api.v1 import admin as admin_v1
 from app.api.v1 import portal as portal_v1
 from app.api.v1 import layers as layers_v1
 from app.api.v1 import search as search_v1
+from app.api.v1 import downloads as downloads_v1
 from app.api.routes import project_routes as old_project_routes
 
 # Inicializar logging
@@ -66,6 +67,9 @@ app.include_router(layers_v1.router, prefix=f"{settings.API_V1_STR}/layers", tag
 
 # Rutas de Búsqueda
 app.include_router(search_v1.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
+
+# Rutas de Descargas
+app.include_router(downloads_v1.router, prefix=f"{settings.API_V1_STR}/resources", tags=["downloads"])
 
 # Mantener project_routes por ahora si no están migrados a v1
 app.include_router(old_project_routes.router, prefix=f"{settings.API_V1_STR}/projects", tags=["projects"])

@@ -11,9 +11,20 @@ class LayerBase(BaseModel):
     category: Optional[str] = Field(None, description="Categoría temática")
     source: Optional[str] = Field(None, description="Fuente de los datos (ej. IDECA, DANE, IGN...)")
     visibility: str = Field(default="private", description="Visibilidad de la capa: private, team, public")
+    map_color: Optional[str] = Field("#3ECF8E", description="Color de la capa en Hex")
+    map_opacity: Optional[float] = Field(0.8, description="Opacidad de la capa (0 a 1)")
 
 class LayerCreate(LayerBase):
     pass
+
+class LayerUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    source: Optional[str] = None
+    visibility: Optional[str] = None
+    map_color: Optional[str] = None
+    map_opacity: Optional[float] = None
 
 class LayerResponse(LayerBase):
     id: uuid.UUID
