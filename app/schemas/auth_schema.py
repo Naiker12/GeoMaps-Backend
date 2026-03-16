@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, Any
+from typing import Optional, Any, List
+from datetime import datetime
+from uuid import UUID
 
 class UserBase(BaseModel):
     id: str
@@ -21,3 +23,13 @@ class MagicLinkRequest(BaseModel):
 class AdminLoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+class SessionResponse(BaseModel):
+    id: UUID
+    device: str
+    location: str
+    last_active: datetime
+    is_current: bool
+
+    class Config:
+        from_attributes = True

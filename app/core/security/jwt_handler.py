@@ -9,12 +9,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: Any, expires_delta: Optional[timedelta] = None) -> str:
     """Crea un token de acceso propio firmado con el secret de Supabase, compatible con la validación local."""
-    if isinstance(subject, dict):
-        to_encode = subject.copy()
+    if isinstance(data, dict):
+        to_encode = data.copy()
     else:
-        to_encode = {"sub": str(subject)}
+        to_encode = {"sub": str(data)}
         
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta

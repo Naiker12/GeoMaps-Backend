@@ -1,6 +1,6 @@
 from typing import Generator, Optional
 import uuid
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt, JWTError
@@ -21,7 +21,10 @@ oauth2_scheme_optional = OAuth2PasswordBearer(
     auto_error=False
 )
 
+from sqlalchemy import select, or_
+
 async def get_current_user(
+    request: Request, # Need request for cookie fallback if needed
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ) -> User:
@@ -30,6 +33,14 @@ async def get_current_user(
         detail="No se pudo validar las credenciales",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    # Try token from header (Depends(oauth2_scheme) already gave us this)
+    if not token:
+        token = request.cookies.get("access_token")
+        
+    if not token:
+        raise credentials_exception
+
     try:
         payload = decode_token(token)
         if payload is None:
@@ -40,11 +51,16 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
         
-    # Aquí deberías tener un UserRepository, pero para simplificar lo buscaremos directo
-    # o implementamos el UserRepository después.
-    from sqlalchemy import select
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
-    user = result.scalar_one_or_none()
+    try:
+        user_uuid = uuid.UUID(user_id)
+        result = await db.execute(
+            select(User).where(
+                or_(User.id == user_uuid, User.supabase_id == user_uuid)
+            )
+        )
+        user = result.scalar_one_or_none()
+    except (ValueError, JWTError):
+        raise credentials_exception
     
     if user is None:
         raise credentials_exception
@@ -66,9 +82,17 @@ async def get_current_user_optional(
     except JWTError:
         return None
         
-    from sqlalchemy import select
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
-    return result.scalar_one_or_none()
+    from sqlalchemy import select, or_
+    try:
+        user_uuid = uuid.UUID(user_id)
+        result = await db.execute(
+            select(User).where(
+                or_(User.id == user_uuid, User.supabase_id == user_uuid)
+            )
+        )
+        return result.scalar_one_or_none()
+    except (ValueError, JWTError):
+        return None
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),

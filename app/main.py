@@ -4,9 +4,9 @@ from app.core.config import settings
 import sys
 import asyncio
 
-# En Windows, psycopg v3 asíncrono prefiere SelectorEventLoopPolicy en algunos entornos
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from app.core.exceptions import MIDASException, midas_exception_handler, global_exception_handler
 from app.core.logging import setup_logging
 from app.api.v1 import auth as auth_v1

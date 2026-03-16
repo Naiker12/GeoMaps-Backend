@@ -58,7 +58,7 @@ class ValidationException(MIDASException):
         )
 
 async def midas_exception_handler(request: Request, exc: MIDASException):
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
@@ -69,20 +69,35 @@ async def midas_exception_handler(request: Request, exc: MIDASException):
             }
         }
     )
+    # Forzar CORS en la respuesta de error por si el middleware falla en excepciones
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 import traceback
+import logging
+logger = logging.getLogger(__name__)
 
 async def global_exception_handler(request: Request, exc: Exception):
-    print("GLOBAL EXCEPTION:", exc)
-    traceback.print_exc()
-    # Registrar la excepción completa aquí en producción
-    return JSONResponse(
+    error_msg = str(exc)
+    logger.error(f"GLOBAL EXCEPTION en {request.url.path}: {error_msg}")
+    logger.error(traceback.format_exc())
+    
+    response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
-                "message": f"Un error interno ha ocurrido en el servidor: {str(exc)}"
+                "message": f"Error interno: {error_msg}"
             }
         }
     )
+    # Forzar CORS
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response

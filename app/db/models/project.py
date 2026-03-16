@@ -10,10 +10,10 @@ from geoalchemy2 import Geometry
 from app.db.session import Base
 
 class ProjectStatus(str, enum.Enum):
-    PLANNING = "planning"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+    PLANNING = "PLANNING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
 
 class InternalStatus(str, enum.Enum):
     ACTIVO = "activo"

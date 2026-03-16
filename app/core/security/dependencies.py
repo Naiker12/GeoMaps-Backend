@@ -1,15 +1,14 @@
 from fastapi import Depends, HTTPException, status, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
 from typing import List
+import uuid
 
-from app.infrastructure.database.session import get_db
-from app.domain.models.user import User
+from app.db.session import get_db
+from app.db.models.user import User
 from app.core.security.jwt_handler import decode_supabase_token
 
-import uuid
-from sqlalchemy import or_
-
-async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     """
     Valida el token de Supabase y retorna el usuario de la tabla pública.
     Busca el token en el header Authorization o en la cookie 'access_token'.
@@ -45,9 +44,12 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> U
 
     try:
         user_uuid = uuid.UUID(user_id)
-        user = db.query(User).filter(
-            or_(User.id == user_uuid, User.supabase_id == user_uuid)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                or_(User.id == user_uuid, User.supabase_id == user_uuid)
+            )
+        )
+        user = result.scalar_one_or_none()
     except ValueError:
         user = None
 
