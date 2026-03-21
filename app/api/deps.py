@@ -142,3 +142,50 @@ async def get_project_service(
 ) -> ProjectService:
     """Inyecta ProjectService con su repositorio."""
     return ProjectService(db)
+
+
+async def get_user_from_api_key(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Valida una API Key enviada en el header X-API-Key o query param."""
+    api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Se requiere API Key (X-API-Key header o ?api_key=)",
+        )
+    
+    import hashlib
+    from datetime import datetime
+    from app.services.api_key_service import APIKeyService
+    
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    service = APIKeyService(db)
+    db_key = await service.get_key_by_hash(key_hash)
+    
+    if not db_key:
+        raise HTTPException(status_code=401, detail="API Key inválida o revocada")
+    
+    # Actualizar último uso de forma asíncrona (fuego y olvido o commit rápido)
+    db_key.last_used = datetime.now()
+    await db.commit()
+    
+    return db_key.user
+
+
+async def get_current_user_unified(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Permite autenticación mediante Token JWT (Browser/App) o API Key (Programático)."""
+    # Intentar JWT primero
+    token = request.headers.get("Authorization") or request.cookies.get("access_token")
+    if token:
+        try:
+            return await get_current_user(request, db)
+        except HTTPException:
+            pass # Fallthrough if JWT fails
+            
+    # Intentar API Key
+    return await get_user_from_api_key(request, db)

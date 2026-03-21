@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Importación de Rutas Seguras
 from app.api.v1 import (
     auth_routes, layer_routes, 
-    download_routes, search_routes, admin_analytics
+    download_routes, search_routes, admin_analytics, api_keys
 )
 from app.api.routes import project_routes # Este está en una carpeta distinta
 
@@ -66,6 +66,7 @@ app.include_router(layer_routes.router, prefix=f"{settings.API_V1_STR}/layers")
 app.include_router(download_routes.router, prefix=f"{settings.API_V1_STR}/resources")
 app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search")
 app.include_router(admin_analytics.router, prefix=f"{settings.API_V1_STR}/admin/analytics")
+app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
 
 
 @app.get("/health")
