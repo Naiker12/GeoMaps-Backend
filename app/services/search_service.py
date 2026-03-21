@@ -1,237 +1,126 @@
+"""Servicio de búsqueda global del Geoportal.
+Permite localizar geometrías (Features) y Proyectos mediante queries espaciales y de texto.
+"""
 
+import logging
 import re
-import json
-import uuid
-from typing import List, Optional, Dict, Any
+from typing import Any, Sequence
+from sqlalchemy import select, text, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select, func
-from app.db.models.layer import LayerFeature, Layer
-from app.db.models.project import Project, ProjectLot
+from app.db.models.layer import LayerFeature
+from app.db.models.project import Project
+
+logger = logging.getLogger(__name__)
+
+COORD_REGEX = re.compile(r"^(-?\d+(\.\d+)?)\s*,?\s*(-?\d+(\.\d+)?)$")
+
 
 class SearchService:
+    """Implementa búsquedas transversales (Geográficas y Alfanuméricas)."""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def search(self, query: str) -> Dict[str, Any]:
-        """
-        Sistema de búsqueda inteligente:
-        1. Detectar si es una coordenada (lat, lon).
-        2. Si no, buscar por texto en nombres, códigos y propiedades JSONB.
-        """
+    async def search(self, query: str) -> dict[str, Any]:
+        """Realiza una búsqueda global mediante el motor integrado."""
         query = query.strip()
-        
-        # Regex para detectar coordenadas tipo: 10.123, -74.456 o 10.123 -74.456
-        coord_regex = r"^(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)$|^(-?\d+(\.\d+)?)\s+(-?\d+(\.\d+)?)$"
-        match = re.match(coord_regex, query)
-        
-        if match:
-            # Es una coordenada
-            groups = match.groups()
-            if groups[0] is not None:
-                lat, lon = float(groups[0]), float(groups[2])
-            else:
-                lat, lon = float(groups[4]), float(groups[6])
-            
-            return await self._search_by_coordinates(lat, lon)
-        else:
-            # Es una búsqueda por texto
-            return await self._search_by_text(query)
-
-    async def _search_by_coordinates(self, lat: float, lon: float) -> Dict[str, Any]:
-        """
-        Busca el predio (LayerFeature) o lote (ProjectLot) más cercano a un punto.
-        """
-        # Consulta para LayerFeature
-        # Ordenamos por distancia al punto dado
-        stmt_features = text("""
-            SELECT 
-                lf.id, 
-                lf.properties, 
-                ST_AsGeoJSON(lf.geom) as geometry,
-                ST_Distance(lf.geom, ST_SetSRID(ST_Point(:lon, :lat), 4326)) as distance,
-                'feature' as type
-            FROM layer_features lf
-            ORDER BY lf.geom <-> ST_SetSRID(ST_Point(:lon, :lat), 4326)
-            LIMIT 1
-        """)
-        
-        # Consulta para ProjectLot
-        stmt_lots = text("""
-            SELECT 
-                pl.id, 
-                pl.identifier as name,
-                ST_AsGeoJSON(pl.geometry) as geometry,
-                ST_Distance(pl.geometry, ST_SetSRID(ST_Point(:lon, :lat), 4326)) as distance,
-                'lot' as type
-            FROM project_lots pl
-            WHERE pl.geometry IS NOT NULL
-            ORDER BY pl.geometry <-> ST_SetSRID(ST_Point(:lon, :lat), 4326)
-            LIMIT 1
-        """)
-        
-        results = []
-        
-        # Ejecutar búsquedas
-        res_features = await self.db.execute(stmt_features, {"lat": lat, "lon": lon})
-        row_feat = res_features.mappings().first()
-        if row_feat:
-            results.append({**row_feat, "layer_id": row_feat.get("layer_id")})
-            
-        res_lots = await self.db.execute(stmt_lots, {"lat": lat, "lon": lon})
-        row_lot = res_lots.mappings().first()
-        if row_lot:
-            results.append(row_lot)
-            
-        # Ordenar por distancia y tomar el mejor
-        if not results:
+        if not query:
             return {"type": "FeatureCollection", "features": []}
-            
-        best = sorted(results, key=lambda x: x['distance'])[0]
-        
-        # Mapear a GeoJSON
-        feature = {
-            "type": "Feature",
-            "geometry": json.loads(best['geometry']),
-            "properties": {
-                "id": str(best['id']),
-                "source": best['type'],
-                "search_mode": "coordinates"
-            }
-        }
-        
-        if best['type'] == 'feature':
-            feature["properties"].update(best['properties'] or {})
-            feature["properties"]["layer_id"] = str(best.get('layer_id'))
-        else:
-            feature["properties"]["name"] = best['name']
-            
-        return {
-            "type": "FeatureCollection",
-            "features": [feature]
-        }
 
-    async def _search_by_text(self, q: str) -> Dict[str, Any]:
-        """
-        Busca en:
-        - LayerFeature.properties (JSONB)
-        - Project.name
-        - ProjectLot.identifier
-        """
-        search_term = f"%{q}%"
+        coord_match = COORD_REGEX.match(query)
+        if coord_match:
+            lat = float(coord_match.group(1))
+            lon = float(coord_match.group(3))
+            return await self._search_by_coordinates(lat, lon)
+
+        return await self._search_by_text(query)
+
+    async def get_suggestions(self, limit: int = 5) -> list[str]:
+        """Obtiene sugerencias automáticas de proyectos y capas."""
+        project_stmt = select(Project.name).limit(limit)
         
-        # 1. Buscar en Layer Features (predios)
-        # Buscamos en todas las propiedades del JSONB
-        # PostgreSQL permite buscar en valores de JSONB de forma eficiente
-        stmt_features = text("""
-            SELECT 
-                lf.id, 
-                lf.layer_id,
-                lf.properties, 
-                ST_AsGeoJSON(lf.geom) as geometry,
-                'feature' as type
-            FROM layer_features lf
-            WHERE EXISTS (
-                SELECT 1 FROM jsonb_each_text(lf.properties) WHERE value ILIKE :q
+        # Buscamos en 'nombre' o 'name' dentro de properties
+        feature_stmt = select(
+            func.coalesce(
+                LayerFeature.properties["nombre"].astext,
+                LayerFeature.properties["name"].astext
             )
-            LIMIT 10
+        ).where(
+            or_(
+                LayerFeature.properties["nombre"].astext != None,
+                LayerFeature.properties["name"].astext != None
+            )
+        ).limit(limit)
+
+        projects = (await self.db.execute(project_stmt)).scalars().all()
+        features = (await self.db.execute(feature_stmt)).scalars().all()
+
+        results = list(set([str(p) for p in (projects + features) if p]))
+        return results[:limit]
+
+    async def _search_by_coordinates(self, lat: float, lon: float) -> dict[str, Any]:
+        """Localiza entidades geográficas por proximidad espacial (Radio de 1km)."""
+        point_wkt = f"POINT({lon} {lat})"
+        stmt = text("""
+            SELECT id, properties, ST_AsGeoJSON(geom)::json as geometry, 'feature' as source
+            FROM layer_features
+            WHERE ST_DWithin(geom, ST_GeomFromText(:wkt, 4326), 1000)
+            LIMIT 50
         """)
         
-        # 2. Buscar en Proyectos
-        stmt_projects = text("""
-            SELECT 
-                p.id, 
-                p.name,
-                p.description,
-                ST_AsGeoJSON(pl.geometry) as geometry,
-                'project' as type
-            FROM projects p
-            JOIN project_locations pl ON p.id = pl.project_id
-            WHERE p.name ILIKE :q OR p.description ILIKE :q
-            LIMIT 10
-        """)
-        
-        # 3. Buscar en Lotes
-        stmt_lots = text("""
-            SELECT 
-                pl.id, 
-                pl.identifier as name,
-                ST_AsGeoJSON(pl.geometry) as geometry,
-                'lot' as type
-            FROM project_lots pl
-            WHERE pl.identifier ILIKE :q
-            LIMIT 10
-        """)
-        
-        features = []
-        
-        # Ejecutar búsquedas
-        res_feat = await self.db.execute(stmt_features, {"q": search_term})
-        for row in res_feat.mappings():
-            feat = {
-                "type": "Feature",
-                "geometry": json.loads(row['geometry']),
-                "properties": {
-                    "id": str(row['id']),
-                    "layer_id": str(row['layer_id']),
-                    "source": "feature"
-                }
-            }
-            feat["properties"].update(row['properties'] or {})
-            features.append(feat)
-            
-        res_proj = await self.db.execute(stmt_projects, {"q": search_term})
-        for row in res_proj.mappings():
-            features.append({
-                "type": "Feature",
-                "geometry": json.loads(row['geometry']) if row['geometry'] else None,
-                "properties": {
-                    "id": str(row['id']),
-                    "name": row['name'],
-                    "description": row['description'],
-                    "source": "project"
-                }
-            })
-            
-        res_lots = await self.db.execute(stmt_lots, {"q": search_term})
-        for row in res_lots.mappings():
-            features.append({
-                "type": "Feature",
-                "geometry": json.loads(row['geometry']) if row['geometry'] else None,
-                "properties": {
-                    "id": str(row['id']),
-                    "name": row['name'],
-                    "source": "lot"
-                }
-            })
-            
+        result = await self.db.execute(stmt, {"wkt": point_wkt})
+        rows = result.mappings().all()
+
         return {
             "type": "FeatureCollection",
-            "features": features[:15] # Limitar total
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": str(r["id"]),
+                    "geometry": r["geometry"],
+                    "properties": {**r["properties"], "source": r["source"]}
+                }
+                for r in rows
+            ]
         }
 
-    async def get_suggestions(self, limit: int = 5) -> List[str]:
-        """
-        Retorna sugerencias aleatorias basadas en lo que hay en la base de datos.
-        """
-        # SQL para obtener una mezcla de nombres de proyectos y nombres de capas.
-        stmt = text("""
-            SELECT text FROM (
-                (SELECT name as text FROM projects LIMIT 15)
-                UNION
-                (SELECT name as text FROM layers LIMIT 15)
-            ) AS sub
-            ORDER BY RANDOM()
-            LIMIT :limit
+    async def _search_by_text(self, query: str) -> dict[str, Any]:
+        """Ejecuta búsquedas de texto plano enriquecidas con ILIKE."""
+        # 1. Búsqueda en Proyectos
+        stmt_projects = select(Project).where(Project.name.ilike(f"%{query}%")).limit(10)
+        projects = (await self.db.execute(stmt_projects)).scalars().all()
+
+        stmt_features = text("""
+            SELECT id, layer_id, properties, ST_AsGeoJSON(geom)::json as geometry
+            FROM layer_features
+            WHERE properties->>'name' ILIKE :q OR properties->>'nombre' ILIKE :q
+            LIMIT 10
         """)
         
-        result = await self.db.execute(stmt, {"limit": limit})
-        suggestions = [row[0] for row in result.fetchall()]
-        
-        # Si no hay suficientes datos en la DB, rellenar con default
-        defaults = ['Predios GIS', 'Crespo', 'Zonificación', 'Capas Sociales', '10.4284, -75.5141']
-        while len(suggestions) < limit and defaults:
-            d = defaults.pop(0)
-            if d not in suggestions:
-                suggestions.append(d)
-                
-        return suggestions[:limit]
+        result_features = await self.db.execute(stmt_features, {"q": f"%{query}%"})
+        features = result_features.mappings().all()
+
+        project_features = [
+            {
+                "type": "Feature",
+                "id": str(p.id),
+                "geometry": None,
+                "properties": {"name": p.name, "description": p.description, "source": "project"}
+            }
+            for p in projects
+        ]
+
+        gis_features = [
+            {
+                "type": "Feature",
+                "id": str(f["id"]),
+                "geometry": f["geometry"],
+                "properties": {**f["properties"], "layer_id": str(f["layer_id"]), "source": "feature"}
+            }
+            for f in features
+        ]
+
+        return {
+            "type": "FeatureCollection",
+            "features": project_features + gis_features
+        }

@@ -93,8 +93,10 @@ app/
 
 2. **Crear e hidratar el entorno virtual:**
    ```bash
+   Remove-Item -Recurse -Force venv
    python -m venv venv
    source venv/bin/activate  # En Windows: venv\Scripts\activate
+   .\venv\Scripts\Activate.ps1
    pip install -r requirements.txt
    ```
 

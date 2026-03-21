@@ -1,35 +1,37 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+"""Configuración de la sesión de base de datos async con SQLAlchemy."""
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
 from app.core.config import settings
 
-# Crear motor asíncrono
-# Nota: Asegurarse de que DATABASE_URL esté en formato asíncrono: postgresql+psycopg://...
-# Asegurar formato postgresql+psycopg:// para async
-db_url = settings.DATABASE_URL
-if db_url.startswith("postgresql://"):
-    db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+_db_url = str(settings.DATABASE_URL)
+if _db_url.startswith("postgresql://"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 engine = create_async_engine(
-    db_url,
+    _db_url,
     echo=False,
     pool_pre_ping=True,
     pool_size=10,
-    max_overflow=20
+    max_overflow=20,
 )
 
-# Fábrica de sesiones
 SessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,
-    autoflush=False
+    autoflush=False,
 )
 
+
 class Base(DeclarativeBase):
-    pass
+    """Clase base para todos los modelos ORM."""
+
 
 async def get_db():
+    """Dependency que provee una sesión de base de datos."""
     async with SessionLocal() as session:
         try:
             yield session

@@ -1,94 +1,66 @@
-import uuid
+"""Repositorio de capas vectoriales vectoriales (PostGIS).
+Extiende BaseRepository para heredar operaciones CRUD genéricas.
+"""
+
 import json
-from typing import Any, List, Optional
-from sqlalchemy import text, insert, select
+import uuid
+from typing import Any, Sequence
+
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.db.models.layer import Layer, LayerFeature
+from app.repositories.base_repository import BaseRepository
 from app.schemas.layer import LayerCreate
 
-class LayerRepository:
+
+class LayerRepository(BaseRepository[Layer]):
+    """Gestor de capas y features geoespaciales."""
+
     def __init__(self, db: AsyncSession):
-        self.db = db
+        super().__init__(Layer, db)
 
-    async def get_all(self, visibility: Optional[str] = None) -> List[Layer]:
-        stmt = select(Layer)
-        if visibility:
-            stmt = stmt.where(Layer.visibility == visibility)
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+    async def create_layer(
+        self, 
+        layer_in: LayerCreate, 
+        geometry_type: str, 
+        source_type: str, 
+        file_url: str, 
+        user_id: uuid.UUID
+    ) -> Layer:
+        """Helper especializado para creación con metadatos cartográficos."""
+        data = layer_in.model_dump()
+        data.update({
+            "geometry_type": geometry_type,
+            "source_type": source_type,
+            "file_url": file_url,
+            "created_by": user_id,
+            "visibility": layer_in.visibility.upper()
+        })
+        return await self.create(data)
 
-    async def get_by_id(self, layer_id: uuid.UUID) -> Optional[Layer]:
-        stmt = select(Layer).where(Layer.id == layer_id)
-        result = await self.db.execute(stmt)
-        return result.scalars().first()
-
-    async def create_layer(self, layer_in: LayerCreate, geometry_type: str, source_type: str, file_url: str, user_id: uuid.UUID) -> Layer:
-        db_layer = Layer(
-            name=layer_in.name,
-            description=layer_in.description,
-            category=layer_in.category,
-            source=layer_in.source,
-            visibility=layer_in.visibility.upper(), # Convert to uppercase for Enum
-            map_color=layer_in.map_color,
-            map_opacity=layer_in.map_opacity,
-            geometry_type=geometry_type,
-            source_type=source_type,
-            file_url=file_url,
-            created_by=user_id
-        )
-        self.db.add(db_layer)
-        await self.db.commit()
-        await self.db.refresh(db_layer)
-        return db_layer
-
-    async def update_layer(self, layer_id: uuid.UUID, layer_in: dict) -> Optional[Layer]:
-        db_layer = await self.get_by_id(layer_id)
-        if not db_layer:
-            return None
+    async def insert_features_bulk(self, layer_id: uuid.UUID, features: list[dict]):
+        """Inserta features cartográficas en lotes para mayor rendimiento."""
+        if not features: return
             
-        update_data = layer_in
-        for field, value in update_data.items():
-            if value is not None:
-                if field == "visibility":
-                    value = value.upper()
-                setattr(db_layer, field, value)
-        
-        await self.db.commit()
-        await self.db.refresh(db_layer)
-        return db_layer
-
-    async def insert_features_bulk(self, layer_id: uuid.UUID, features_data: List[dict]):
-        """
-        Inserta en bulk (lotes) características geométricas a `layer_features`.
-        features_data es una lista de diccionarios:
-        [{ "properties": dict, "geom_wkt": str }, ...]
-        """
-        if not features_data:
-            return
-            
-        mappings = []
-        for feat in features_data:
-            mappings.append({
+        mappings = [
+            {
                 "layer_id": layer_id,
                 "properties": feat["properties"],
-                # Usar ST_GeomFromText() para que PostGIS convierta de WKT a GEOMETRY
+                # PostGIS: Convertir WKT a GEOMETRY indexable
                 "geom": text(f"ST_GeomFromText('{feat['geom_wkt']}', 4326)")
-            })
+            }
+            for feat in features
+        ]
             
-        # Ejecutando un insert bulk (por chunks sería ideal para archivos enormes)
-        chunk_size = 1000
+        chunk_size = 500
         for i in range(0, len(mappings), chunk_size):
-            chunk = mappings[i:i + chunk_size]
-            await self.db.execute(insert(LayerFeature).values(chunk))
+            await self.db.execute(insert(LayerFeature).values(mappings[i:i + chunk_size]))
         
         await self.db.commit()
 
     async def get_features_as_geojson(self, layer_id: uuid.UUID) -> dict:
-        """
-        Retorna las geometrías de una capa como Point/Polygons mapeados en un GeoJSON (FeatureCollection).
-        """
-        # Usamos func.ST_AsGeoJSON para el procesamiento GIS
-        from sqlalchemy import func
+        """Representa las geometrías de la capa como un FeatureCollection GeoJSON."""
         stmt = select(
             LayerFeature.id, 
             LayerFeature.properties, 
@@ -98,76 +70,62 @@ class LayerRepository:
         result = await self.db.execute(stmt)
         rows = result.mappings().all()
         
-        features = []
-        for row in rows:
-            features.append({
-                "type": "Feature",
-                "id": row['id'],
-                "properties": row['properties'],
-                "geometry": json.loads(row['geometry'])
-            })
-            
         return {
             "type": "FeatureCollection",
-            "features": features
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": str(row['id']),
+                    "properties": row['properties'],
+                    "geometry": json.loads(row['geometry'])
+                }
+                for row in rows
+            ]
         }
 
-    async def get_features_properties(self, layer_ids: List[uuid.UUID]) -> List[dict]:
-        """
-        Retorna solo las propiedades de las features para las capas especificadas.
-        Optimizado para estadísticas dinámicas.
-        """
+    async def get_features_properties(self, layer_ids: list[uuid.UUID]) -> list[dict]:
+        """Obtiene de forma eficiente las propiedades para paneles estadísticos."""
         stmt = select(LayerFeature.properties).where(LayerFeature.layer_id.in_(layer_ids))
         result = await self.db.execute(stmt)
         return [{"properties": p} for p in result.scalars().all()]
 
-    async def get_feature_by_id(self, feature_id: Any) -> Optional[dict]:
-        """
-        Retorna una sola feature con sus propiedades y geometría.
-        """
-        from sqlalchemy import func
-        # Intentar convertir feature_id a UUID si es necesario
+    async def get_feature_by_id(self, feature_id: Any) -> dict | None:
+        """Detalle de una sola entidad geográfica. Soporta IDs numéricos."""
         try:
-            f_id = uuid.UUID(str(feature_id))
-            stmt = select(
-                LayerFeature.id,
-                LayerFeature.layer_id,
-                LayerFeature.properties,
-                LayerFeature.created_at,
-                func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
-            ).where(LayerFeature.id == f_id)
+            # Intentar convertir a entero si es posible, ya que la columna es BigInt
+            if isinstance(feature_id, str) and feature_id.isdigit():
+                f_id = int(feature_id)
+            elif isinstance(feature_id, (int, float)):
+                f_id = int(feature_id)
+            else:
+                # Si no es un número, intentar UUID por si acaso aunque la base diga BigInt
+                f_id = uuid.UUID(str(feature_id))
         except (ValueError, TypeError):
-            # Si no es UUID, intentar como entero si el ID en DB lo fuera
-            try:
-                f_id_int = int(str(feature_id))
-                stmt = select(
-                    LayerFeature.id,
-                    LayerFeature.layer_id,
-                    LayerFeature.properties,
-                    LayerFeature.created_at,
-                    func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
-                ).where(LayerFeature.id == f_id_int)
-            except ValueError:
-                return None
-
-        result = await self.db.execute(stmt)
-        row = result.mappings().first()
-        if not row:
             return None
-            
-        return {
-            "id": row['id'],
-            "layer_id": row['layer_id'],
-            "properties": row['properties'],
-            "lastUpdate": row['created_at'],
-            "geometry": json.loads(row['geometry'])
-        }
 
-    async def delete_layer(self, layer_id: uuid.UUID) -> bool:
-        db_layer = await self.get_by_id(layer_id)
-        if not db_layer:
-            return False
+        stmt = select(
+            LayerFeature.id,
+            LayerFeature.layer_id,
+            LayerFeature.properties,
+            LayerFeature.created_at,
+            func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
+        ).where(LayerFeature.id == f_id)
+
+        try:
+            result = await self.db.execute(stmt)
+            row = result.mappings().first()
             
-        await self.db.delete(db_layer)
-        await self.db.commit()
-        return True
+            if not row:
+                return None
+                
+            return {
+                "id": str(row['id']),
+                "layer_id": str(row['layer_id']),
+                "properties": row['properties'],
+                "lastUpdate": row['created_at'].isoformat() if row['created_at'] else None,
+                "geometry": json.loads(row['geometry'])
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error en get_feature_by_id: {e}")
+            return None
