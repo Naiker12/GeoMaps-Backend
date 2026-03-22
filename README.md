@@ -12,7 +12,9 @@ Este repositorio constituye el núcleo lógico del ecosistema **GEOMAPS**, integ
 | :--- | :--- |
 | **Consultas Espaciales** | Soporte nativo para operaciones geométricas complejas (intersecciones, buffers, distancias) mediante PostGIS y GeoAlchemy2. |
 | **API RESTful de Alta Velocidad** | Implementación asíncrona con **FastAPI** para una baja latencia y alta concurrencia. |
-| **Integración con Supabase** | Sincronización de autenticación y persistencia de datos en tiempo real. |
+| **Infraestructura SaaS** | Módulo nativo para emisión, encriptación y validación de **API Keys**, junto con soporte para **Webhooks** y web-sockets. |
+| **Telemetry & AI** | Endpoints de recolección de métricas de uso de Modelos de Inteligencia Artificial (Tokens, costos por modelo, latencia). |
+| **Integración con Supabase** | Sincronización de autenticación y persistencia de datos en tiempo real y RLS. |
 | **Procesamiento de Datos** | Uso de **GeoPandas** y **Shapely** para manipulación avanzada de capas vectoriales y sistemas de coordenadas. |
 | **Arquitectura de Repositorios** | Abstracción de la capa de datos para facilitar el intercambio de motores de persistencia y mejorar la testabilidad. |
 
@@ -41,7 +43,8 @@ La arquitectura de **GEOMAPS Backend** sigue un patrón de capas desacopladas, l
 
 ### 1. Capa de API y Rutas (`app/api`)
 Es el punto de entrada de las solicitudes. Define los endpoints, maneja el versionamiento (v1) y valida los datos de entrada/salida utilizando **Pydantic Schemas**.
-- **Auth Sync:** Sincronización transparente con los tokens JWT de Supabase.
+- **Auth Sync & Security:** Sincronización transparente con los tokens JWT de Supabase y validación por `x-api-key` para llamadas programáticas B2B.
+- **AI Telemetry:** Recolección de trazas y eventos de consumo de modelos (OpenAI, Anthropic, etc.) guardando `tokens_in` y `tokens_out`.
 - **Layers & Search:** Endpoints optimizados para la recuperación de capas y búsquedas territoriales por código catastral o coordenadas.
 
 ### 2. Capa de Dominio y Entidades (`app/domain`)

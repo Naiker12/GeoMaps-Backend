@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.services.analytics_service import AnalyticsService
+from app.services.analytics import AnalyticsService
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +38,25 @@ async def get_analytics_charts(
         # Actividad Reciente
         recent_activity = await service.get_recent_activity()
         
-        # Distribución de Capas (Mockea o Implementa similar)
-        layer_types = [{"name": "Puntos", "value": 5}, {"name": "Polígonos", "value": 12}]
+        # Distribución de Capas real (Puntos, Líneas, Polígonos)
+        layer_types = await service.get_layer_distribution()
+        
+        # Consumo de Recursos (90 días por defecto para la gráfica de barras)
+        resource_usage = await service.get_resource_usage()
 
         return {
             **growth_data,
             "layerTypes": layer_types,
-            "recentActivity": recent_activity
+            "recentActivity": recent_activity,
+            "resourceUsage": resource_usage
         }
     except Exception as exc:
         logger.error("Error en analytics charts: %s", exc, exc_info=True)
         return {"error": "No se pudieron cargar los datos de analítica"}
+
+
+@router.get("/usage")
+async def get_system_usage(db: AsyncSession = Depends(get_db)):
+    """Estado y consumo de recursos del sistema (DB, API, Tokens)."""
+    service = AnalyticsService(db)
+    return await service.get_system_status()

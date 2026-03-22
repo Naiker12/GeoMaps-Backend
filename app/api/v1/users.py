@@ -6,10 +6,37 @@ from uuid import UUID
 
 from app.db.session import get_db
 from app.domain.models.user import User
-from app.schemas.user_schema import UserBase, UserUpdate
+from app.schemas.user_schema import UserBase, UserUpdate, UserCreate
 from app.core.security.dependencies import get_current_user
+from app.core.security.password import hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+@router.post("/", response_model=UserBase)
+async def create_user(
+    user_in: UserCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Crea un nuevo usuario desde el panel administrativo.
+    """
+    # Verificar si el usuario ya existe
+    result = await db.execute(select(User).where(User.email == user_in.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="El correo ya está registrado")
+    
+    db_obj = User(
+        email=user_in.email,
+        hashed_password=hash_password(user_in.password),
+        full_name=user_in.full_name,
+        role=user_in.role or "USER",
+        is_active=user_in.is_active if user_in.is_active is not None else True
+    )
+    
+    db.add(db_obj)
+    await db.commit()
+    await db.refresh(db_obj)
+    return db_obj
 
 @router.get("/", response_model=List[UserBase])
 async def list_admin_users(
