@@ -1,19 +1,21 @@
 from datetime import timedelta
 from typing import Any
-from sqlalchemy import func, select
+from sqlalchemy import func, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.utils.datetime import get_utc_now
 from app.db.models.layer import Layer, LayerFeature, VisibilityEnum
 from app.db.models.project import Project
 from .utils import group_by_day, group_by_month
 
+
 class DashboardAnalytics:
     """Procesamiento de KPIs y métricas del Dashboard principal."""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def get_summary_kpis(self) -> list[dict[str, Any]]:
-        """KPIs enfocaitados en capas GIS y dataset."""
+        """KPIs enfocados en capas GIS y dataset."""
         results = {}
         for key, stmt in {
             "layers": select(func.count(Layer.id)),
@@ -52,8 +54,12 @@ class DashboardAnalytics:
         for i in range(days // interval + 1):
             d_start = start_date + timedelta(days=i * interval)
             d_end = d_start + timedelta(days=interval)
-            l_stmt = select(func.count(Layer.id)).where((Layer.created_at >= d_start) & (Layer.created_at < d_end))
-            p_stmt = select(func.count(Project.id)).where((Project.created_at >= d_start) & (Project.created_at < d_end))
+            l_stmt = select(func.count(Layer.id)).where(
+                (Layer.created_at >= d_start) & (Layer.created_at < d_end)
+            )
+            p_stmt = select(func.count(Project.id)).where(
+                (Project.created_at >= d_start) & (Project.created_at < d_end)
+            )
             l_count = await self.db.scalar(l_stmt) or 0
             p_count = await self.db.scalar(p_stmt) or 0
             data.append({
@@ -63,24 +69,50 @@ class DashboardAnalytics:
                 "proyectos": p_count
             })
         return data
+
     async def get_system_usage(self) -> dict[str, Any]:
-        """Monitoreo real del sistema (Estilo Supabase Status Bar)."""
-        # DB Usage (Real size from Postgres)
+        """
+        Métricas reales del sistema.
+        - Tamaño real de la BD Postgres (pg_database_size)
+        - Top capas por cantidad de features (datos reales de LayerFeature)
+        - Total de features almacenados
+        - Sin datos simulados ni hardcodeados
+        """
+        # ── Tamaño real de la BD Postgres ──────────────────────────────────
         size_stmt = select(func.pg_database_size(func.current_database()))
         db_bytes = await self.db.scalar(size_stmt) or 0
         db_mb = round(db_bytes / (1024 * 1024), 2)
-        
-        # Supabase FREE tier limit is 500MB
-        db_percentage = min(99.9, round((db_mb / 500) * 100, 1)) 
-        
-        # API Requests today (Simulated for UI demonstration)
-        requests_today = 1240 + (int(db_mb) % 100)
-        
+
+        # Supabase FREE tier tiene límite de 500 MB en la BD
+        db_percentage = min(99.9, round((db_mb / 500) * 100, 1))
+
+        # ── Total de features en la BD ──────────────────────────────────────
+        total_features = await self.db.scalar(select(func.count(LayerFeature.id))) or 0
+
+        # ── Top capas por cantidad de features (real, sin hardcodear) ───────
+        top_layers_stmt = (
+            select(Layer.name, func.count(LayerFeature.id).label("feature_count"))
+            .join(LayerFeature, LayerFeature.layer_id == Layer.id)
+            .group_by(Layer.id, Layer.name)
+            .order_by(desc("feature_count"))
+            .limit(5)
+        )
+        top_layers_result = await self.db.execute(top_layers_stmt)
+        top_layers = [
+            {"name": name, "count": count}
+            for name, count in top_layers_result
+        ]
+
+        # ── Total de capas ──────────────────────────────────────────────────
+        total_layers = await self.db.scalar(select(func.count(Layer.id))) or 0
+
         return {
             "dbUsage": f"{db_percentage}%",
             "dbSize": f"{db_mb} MB",
             "dbLimit": "500 MB",
-            "apiRequests": requests_today,
-            "tokens": {"used": 12000, "limit": 25000},
+            "dbPercentage": db_percentage,
+            "totalFeatures": total_features,
+            "totalLayers": total_layers,
+            "topLayers": top_layers,           
             "status": "OK" if db_percentage < 85 else "Warning"
         }

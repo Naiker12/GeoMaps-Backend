@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Maneja eventos de encendido y apagado de la aplicación."""
-    logger.info("Arrancando GeoMaps Engine v2 (Python 3.13)...")
+    logger.info("Arrancando GeoMaps.")
     yield
     logger.info("Apagando GeoMaps Engine.")
 
