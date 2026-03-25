@@ -2,5 +2,8 @@ services:
   - type: web
     name: geomaps-backend
     runtime: python
-    buildCommand: pip install --only-binary=:all: -r requirements.txt
+    buildCommand: pip install --only-binary=:all: --no-build-isolation -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.1
