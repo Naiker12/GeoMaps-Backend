@@ -14,7 +14,7 @@ from app.api.v1 import (
     download_routes, search_routes, api_keys
 )
 from app.api.v1.admin import router as admin_router
-from app.api.routes import project_routes # Este está en una carpeta distinta
+from app.api.routes import project_routes
 
 from app.core.config import settings
 from app.core.exceptions import setup_exception_handlers
@@ -36,7 +36,9 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="2.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if settings.DEBUG else None,
+    docs_url=f"{settings.API_V1_STR}/docs" if settings.DEBUG else None,
+    redoc_url=f"{settings.API_V1_STR}/redoc" if settings.DEBUG else None,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if settings.DEBUG else None,
 )
 
 app.add_middleware(
