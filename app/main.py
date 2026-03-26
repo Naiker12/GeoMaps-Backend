@@ -36,9 +36,9 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="2.0.0",
     lifespan=lifespan,
-    docs_url=f"{settings.API_V1_STR}/docs" if settings.DEBUG else None,
-    redoc_url=f"{settings.API_V1_STR}/redoc" if settings.DEBUG else None,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json" if settings.DEBUG else None,
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json",
 )
 
 app.add_middleware(
