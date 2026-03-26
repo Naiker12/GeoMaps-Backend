@@ -43,7 +43,7 @@ async def get_project(
     """
     Obtiene un proyecto por ID. Permite acceso público si el proyecto es visible.
     """
-    project = await service.get_project(id)
+    project = await service.get_project_by_id(id)
     if not project:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
         

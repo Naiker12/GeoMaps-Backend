@@ -16,7 +16,8 @@ BUCKET_MAP = {
     "layers": "Capas",
     "images": "Imagen",
     "models": "Imagen3d",
-    "resources": "resources"
+    "resources": "resources",
+    "downloads": "Download"
 }
 
 
@@ -25,7 +26,7 @@ class StorageService:
         from supabase import create_client, Client
         self.supabase: Client = create_client(
             settings.SUPABASE_URL,
-            settings.SUPABASE_ANON_KEY
+            settings.SUPABASE_SERVICE_KEY or settings.SUPABASE_ANON_KEY
         )
 
     async def upload_file(self, file: UploadFile, category: str = "layers") -> str:

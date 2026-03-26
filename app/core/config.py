@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
+    SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_JWT_SECRET: str
 
     model_config = SettingsConfigDict(

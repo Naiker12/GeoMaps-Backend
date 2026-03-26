@@ -69,6 +69,7 @@ class ProjectRepository(BaseRepository[Project]):
         related_instances = {}
         for key, model_cls in child_models.items():
             data = project_data.pop(key, {})
+            if data is None: data = {} # Asegurar dict si viene None de Pydantic
             if key == "location": 
                 data = self._process_geom(data)
             related_instances[key] = model_cls(**data)
@@ -87,7 +88,7 @@ class ProjectRepository(BaseRepository[Project]):
         single_rels = ["location", "metrics", "financials", "map_settings", "admin_settings"]
         for rel in single_rels:
             data = project_data.pop(rel, None)
-            if data:
+            if data is not None and isinstance(data, dict):
                 if rel == "location": data = self._process_geom(data, project.location)
                 target = getattr(project, rel)
                 for k, v in data.items(): setattr(target, k, v)

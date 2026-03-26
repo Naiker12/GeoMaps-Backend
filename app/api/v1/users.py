@@ -5,7 +5,7 @@ from typing import List
 from uuid import UUID
 
 from app.db.session import get_db
-from app.domain.models.user import User
+from app.db.models.user import User
 from app.schemas.user_schema import UserBase, UserUpdate, UserCreate
 from app.core.security.dependencies import get_current_user
 from app.core.security.password import hash_password

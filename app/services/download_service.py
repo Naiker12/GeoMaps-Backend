@@ -5,6 +5,7 @@ Maneja la lógica de negocio para PDF, ZIP y archivos geoespaciales.
 import logging
 import httpx
 from typing import Any, Sequence
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.download import DownloadResource
 from app.repositories.download_repository import DownloadRepository
@@ -26,17 +27,39 @@ class DownloadService:
     async def create_download(
         self, 
         download_in: DownloadResourceCreate, 
-        user_id: Any, 
-        files: list = []
+        user_id: Any
     ) -> DownloadResource:
-        """Crea un nuevo recurso y opcionalmente procesa el archivo físico."""
-        file_url = None
-        if files and len(files) > 0:
-            file = files[0] # Tomamos el primer archivo
-            from app.services.storage_service import storage_service
-            file_url = await storage_service.upload_file(file, "resources")
+        """Crea un nuevo recurso de descarga (con soporte para sincronización de capas)."""
+        data = download_in.model_dump()
+        data["created_by"] = user_id
+        
+        # Si viene vinculada a una capa, precargar metadatos desde el modelo Layer
+        if data.get("layer_id"):
+            from app.db.models.layer import Layer
+            stmt = select(Layer).where(Layer.id == data["layer_id"])
+            result = await self.repository.db.execute(stmt)
+            layer = result.scalar_one_or_none()
             
-        return await self.repository.create_download(download_in, file_url, user_id)
+            if layer:
+                data["file_url"] = layer.file_url
+                data["file_format"] = layer.source_type
+                data["geometry_type"] = layer.geometry_type
+                # El content_count se podría sacar de count(layer.features)
+                from app.db.models.layer import LayerFeature
+                from sqlalchemy import func
+                count_stmt = select(func.count()).where(LayerFeature.layer_id == layer.id)
+                count_res = await self.repository.db.execute(count_stmt)
+                data["content_count"] = count_res.scalar()
+
+        return await self.repository.create(data)
+
+    async def update_resource_metadata(self, resource_id: Any, metadata: dict) -> DownloadResource | None:
+        """Actualiza metadatos técnicos tras la subida del archivo."""
+        db_obj = await self.repository.get(resource_id)
+        if not db_obj:
+            return None
+        
+        return await self.repository.update(db_obj, metadata)
 
     async def delete_download(self, download_id: Any) -> bool:
         """Invalida un recurso por su identificador único."""
@@ -51,4 +74,4 @@ class DownloadService:
                 return response.json()
         except Exception as exc:
             logger.error(f"Error externo: {exc}")
-            return {"error": "Inalcanzable"}
+            return {"error": str(exc)}

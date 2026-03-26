@@ -51,6 +51,26 @@ class ProjectService:
         """Elimina permanentemente un proyecto y todas sus relaciones."""
         return await self.repository.delete(project_id)
 
+    async def add_project_images(self, project_id: uuid.UUID, files: list[UploadFile]) -> list[Any]:
+        """Sube múltiples imágenes y las vincula al proyecto."""
+        for file in files:
+            await self._classify_and_upload(project_id, file)
+        project = await self.get_project_by_id(project_id)
+        return project.images if project else []
+
+    async def add_project_models(self, project_id: uuid.UUID, files: list[UploadFile]) -> list[Any]:
+        """Sube múltiples modelos 3D y los vincula al proyecto."""
+        for file in files:
+            await self._classify_and_upload(project_id, file)
+        project = await self.get_project_by_id(project_id)
+        return project.models_3d if project else []
+
+    async def upload_shapefile(self, project_id: uuid.UUID, files: list[UploadFile]) -> Project | None:
+        """Sube y procesa shapefiles (capas vectoriales) para el proyecto."""
+        for file in files:
+            await self._classify_and_upload(project_id, file)
+        return await self.get_project_by_id(project_id)
+
     async def _classify_and_upload(self, project_id: uuid.UUID, file: UploadFile):
         """Helper privado para clasificar y subir archivos según su extensión."""
         from app.services.storage_service import storage_service
