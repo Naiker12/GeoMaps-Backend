@@ -51,12 +51,49 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Intercepta peticiones para medir el tiempo de respuesta y trazabilidad."""
+async def combined_trace_and_log_middleware(request: Request, call_next):
+    """Intercepta peticiones para medir tiempo y registrar logs de API Keys asíncronamente."""
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+    
+    # ── LOGGING DE API KEY ──
+    # Si la petición fue autenticada con API Key, get_user_from_api_key inyecta estos en request.state
+    if hasattr(request.state, "api_key_id") and hasattr(request.state, "user_id"):
+        from app.db.session import SessionLocal
+        from app.services.api_key_service import APIKeyService
+        import asyncio
+        
+        async def log_task(api_key_id, user_id, status_code, process_time_ms, endpoint, method, ip_address, user_agent):
+            async with SessionLocal() as db:
+                service = APIKeyService(db)
+                await service.log_api_usage(
+                    api_key_id=api_key_id,
+                    user_id=user_id,
+                    endpoint=endpoint,
+                    method=method,
+                    status_code=status_code,
+                    response_time_ms=process_time_ms,
+                    tokens_used=1, # Default 1 token
+                    ip_address=ip_address,
+                    user_agent=user_agent
+                )
+        
+        # Ejecutar en segundo plano para no bloquear el request cycle
+        asyncio.create_task(
+            log_task(
+                request.state.api_key_id,
+                request.state.user_id,
+                response.status_code,
+                int(process_time * 1000),
+                request.url.path,
+                request.method,
+                request.client.host if request.client else None,
+                request.headers.get("user-agent")
+            )
+        )
+        
     return response
 
 

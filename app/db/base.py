@@ -12,4 +12,12 @@ from app.db.models.project import (
 )
 from app.db.models.layer import Layer, LayerFeature
 from app.db.models.download import DownloadResource
-from app.db.models.api_key import APIKey
+from app.db.models.api_key import (
+    APIKey, 
+    APIKeyUsageLog, 
+    APIKeyIPWhitelist, 
+    APIKeyRateLimitConfig, 
+    APIKeyDailyStats
+)
+from app.db.models.activity import ActivityLog
+from app.db.models.user_session import UserSession

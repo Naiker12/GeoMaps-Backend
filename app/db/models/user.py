@@ -31,4 +31,9 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    api_keys: Mapped[list["APIKey"]] = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
+    api_keys: Mapped[list["APIKey"]] = relationship(
+        "APIKey", 
+        back_populates="user", 
+        cascade="all, delete-orphan",
+        foreign_keys="[APIKey.user_id]"
+    )

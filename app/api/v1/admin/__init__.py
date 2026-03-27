@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 from app.core.security.dependencies import require_admin
 from app.api.v1.users import router as users_router
-from app.api.v1.admin.analytics import router as analytics_router
+from .analytics import router as analytics_router
+from .api_keys import router as api_keys_router
 
 # Router principal para el Panel de Administración
 # Todas las rutas bajo este router requerirán rol de admin o super_admin
@@ -14,3 +15,4 @@ router = APIRouter(
 # Incluir submódulos de administración
 router.include_router(users_router)
 router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+router.include_router(api_keys_router, prefix="/api-keys", tags=["api-keys"])
