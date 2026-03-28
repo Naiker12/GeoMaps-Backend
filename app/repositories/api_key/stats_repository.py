@@ -158,8 +158,14 @@ class APIKeyStatsRepository:
         from app.repositories.api_key.usage_repository import APIKeyUsageRepository
         usage_repo = APIKeyUsageRepository(self.db)
 
-        today_requests = await usage_repo.get_user_usage_count(user_id, 1)
-        week_requests = await usage_repo.get_user_usage_count(user_id, 7)
+        # Peticiones exitosas (las que cuentan para cuota)
+        today_successful = await usage_repo.get_user_usage_count(user_id, 1)
+        # Todas las peticiones (para métricas generales)
+        today_all = await usage_repo.get_user_total_usage_count(user_id, 1)
+        week_requests = await usage_repo.get_user_total_usage_count(user_id, 7)
+
+        # Quota status detallado
+        quota_status = await usage_repo.get_quota_status(user_id)
 
         # Errores del usuario
         error_count = (
@@ -247,16 +253,18 @@ class APIKeyStatsRepository:
         daily_limit = 10
 
         return {
-            "today_requests": today_requests,
+            "today_requests": today_successful,  # Solo exitosas (para cuota)
+            "today_total": today_all,  # Todas (para métricas)
             "week_requests": week_requests,
             "error_count": int(error_count),
             "avg_latency_ms": round(float(avg_latency), 1),
             "total_tokens": sum(t["tokens"]["total"] for t in traffic_by_day),
             "monthly_usage": {
-                "used": today_requests,
+                "used": today_successful,
                 "quota": daily_limit,
                 "cycle_end": datetime.now().strftime("%Y-%m-%d"),
             },
+            "quota_status": quota_status,
             "token_distribution": {
                 "layers": sum(t["tokens"]["layers"] for t in traffic_by_day),
                 "projects": sum(t["tokens"]["projects"] for t in traffic_by_day),

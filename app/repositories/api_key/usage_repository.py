@@ -119,7 +119,21 @@ class APIKeyUsageRepository:
         return log
 
     async def get_user_usage_count(self, user_id: uuid.UUID, days: int = 1) -> int:
-        """Cuenta peticiones de un usuario en los últimos N días."""
+        """Cuenta peticiones EXITOSAS de un usuario en los últimos N días.
+        Solo cuenta status_code < 400 (no errores del servidor ni del cliente).
+        """
+        stmt = select(func.count(APIKeyUsageLog.id)).where(
+            and_(
+                APIKeyUsageLog.user_id == user_id,
+                APIKeyUsageLog.requested_at >= func.now() - text(f"interval '{days} days'"),
+                APIKeyUsageLog.status_code < 400,
+            )
+        )
+        count = (await self.db.execute(stmt)).scalar() or 0
+        return int(count)
+
+    async def get_user_total_usage_count(self, user_id: uuid.UUID, days: int = 1) -> int:
+        """Cuenta TODAS las peticiones de un usuario (exitosas + errores) para métricas."""
         stmt = select(func.count(APIKeyUsageLog.id)).where(
             and_(
                 APIKeyUsageLog.user_id == user_id,
@@ -130,6 +144,21 @@ class APIKeyUsageRepository:
         return int(count)
 
     async def check_daily_quota(self, user_id: uuid.UUID) -> bool:
-        """Verifica si el usuario no ha superado el límite de 10 peticiones/día."""
+        """Verifica si el usuario no ha superado el límite de 10 peticiones/día.
+        Solo cuenta peticiones exitosas (status_code < 400).
+        """
         today_requests = await self.get_user_usage_count(user_id, 1)
         return today_requests < 10
+
+    async def get_quota_status(self, user_id: uuid.UUID) -> dict:
+        """Retorna estado detallado de cuota para el frontend."""
+        DAILY_LIMIT = 10
+        successful_today = await self.get_user_usage_count(user_id, 1)
+        remaining = max(0, DAILY_LIMIT - successful_today)
+        return {
+            "used": successful_today,
+            "limit": DAILY_LIMIT,
+            "remaining": remaining,
+            "is_warning": successful_today >= (DAILY_LIMIT - 2),  # 80% = warning
+            "is_blocked": successful_today >= DAILY_LIMIT,
+        }

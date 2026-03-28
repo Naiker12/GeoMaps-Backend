@@ -1,0 +1,75 @@
+# 🔍 Análisis de Flujo: Buscador Inteligente GeoMaps
+
+## 🏗️ ARQUITECTURA GENERAL
+El sistema utiliza un flujo de búsqueda global que integra datos vectoriales (GIS) y registros alfanuméricos (Proyectos).
+
+---
+
+## 💻 FRONTEND (React + Vite)
+
+### 1. Componente de UI: `Search-Overlay.tsx`
+- **Activación:** Se activa mediante shortcut `Ctrl + K` / `Cmd + K` o vía `LayoutContext`.
+- **Estado Local:**
+  - `query`: Texto actual del input.
+  - `results`: Lista de features (GeoJSON) retornados por el backend.
+  - `suggestions`: Tags de búsqueda rápida.
+- **Lógica de Entrada:**
+  - **Debounce:** Espera 500ms tras la última pulsación antes de disparar la búsqueda al backend.
+  - **Sugerencias:** Se cargan al abrir el componente y se refrescan cada 30 segundos.
+- **Acción al seleccionar (`handleSelectResult`):**
+  - **Limpieza de UI:** Cierra paneles de Análisis, Descargas e IA para evitar traslapes.
+  - **Ruteo Interno:**
+    - Si es `feature`/`lot`: Busca la capa en `LayerContext` y setea `selectedLayerFeature`. El mapa centrará la vista allí.
+    - Si es `project`: Setea `selectedProject` para abrir la ficha del proyecto inmobiliario.
+
+### 2. Capa de Datos: `Search-Service.ts`
+- Utiliza un cliente Axios público (`publicClient`).
+- **Métodos:**
+  - `search(query)`: GET a `/api/v1/search/`.
+  - `getSuggestions(limit)`: GET a `/api/v1/search/suggestions`.
+
+---
+
+## ⚙️ BACKEND (FastAPI + SQLAlchemy)
+
+### 1. Endpoints: `app/api/v1/search.py`
+- Define los routers para la búsqueda global.
+- Delegación directa a la clase de servicio `SearchService`.
+
+### 2. Lógica de Negocio: `app/services/search_service.py`
+El motor de búsqueda decide el tipo de ejecución basado en el input:
+
+#### A. Búsqueda por Coordenadas (Regex Match)
+- Detecta patrones tipo `10.42, -75.51`.
+- Ejecuta `_search_by_coordinates`:
+  - **PostGIS:** Usa `ST_DWithin` con un radio de 1000 metros (1km) desde el punto dado.
+  - Prioriza elementos cercanos en la tabla `layer_features`.
+
+#### B. Búsqueda por Texto (ILIKE)
+- Ejecuta `_search_by_text`:
+  - **Proyectos:** Busca coincidencias en `projects.name`.
+  - **GIS (Features):** Busca dentro del JSONB de `properties` usando `properties->>'name'` o `properties->>'nombre'`.
+  - **Fusión:** Combina ambos resultados en una única `FeatureCollection`.
+
+#### C. Generador de Sugerencias
+- Realiza un `select distinct` aleatorio entre nombres de proyectos y nombres de features para alimentar los tags del frontend.
+
+---
+
+## 🔄 RESUMEN DEL FLUJO (Paso a Paso)
+1. Usuario presiona `Ctrl+K`.
+2. Frontend pide `/suggestions` -> Backend devuelve nombres populares.
+3. Usuario escribe "Crespo".
+4. Frontend espera 500ms -> Llama a `/search/?q=Crespo`.
+5. Backend ejecuta ILIKE en BD (Proyectos + Capas GIS).
+6. Backend devuelve un GeoJSON (FeatureCollection).
+7. Usuario hace clic en un resultado.
+8. Frontend mapea el ID a una capa activa y ordena al mapa "moverse" a esa geometría.
+9. El buscador se cierra automáticamente.
+
+---
+
+## 📈 POSIBLES MEJORAS IDENTIFICADAS (Sin aplicar)
+1. **Full Text Search (FTS):** Actualmente usa `ILIKE %query%`, que es lento en tablas grandes. Se podría implementar `tsvector` en PostgreSQL.
+2. **Priorización por Capa:** Permitir que el buscador privilegie ciertas capas (ej. Predial) sobre otras.
+3. **Paginación:** Actualmente limitado a 10 resultados fijos por categoría en el backend.

@@ -43,8 +43,14 @@ class APIKeyRepository(APIKeyCoreRepository):
     async def get_user_usage_count(self, user_id: uuid.UUID, days: int = 1) -> int:
         return await self._usage.get_user_usage_count(user_id, days)
 
+    async def get_user_total_usage_count(self, user_id: uuid.UUID, days: int = 1) -> int:
+        return await self._usage.get_user_total_usage_count(user_id, days)
+
     async def check_daily_quota(self, user_id: uuid.UUID) -> bool:
         return await self._usage.check_daily_quota(user_id)
+
+    async def get_quota_status(self, user_id: uuid.UUID) -> dict:
+        return await self._usage.get_quota_status(user_id)
 
     # ─── DELEGACIONES: Stats ──────────────────────────────────────────
 

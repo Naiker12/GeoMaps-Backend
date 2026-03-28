@@ -141,11 +141,12 @@ async def get_layer_geojson(
     """Obtiene el GeoJSON de la capa.
     🔐 Según manual Sección 3.2: Acceso a FEATURES es REQUERIDO.
     """
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Se requiere API Key o Sesión activa para acceder a los datos GeoJSON."
-        )
+    # Permitido para acceso público desde el frontend
+    # if not current_user:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="Se requiere API Key o Sesión activa para acceder a los datos GeoJSON."
+    #     )
 
     service = LayerService(db)
     return await service.get_layer_geojson(layer_id)

@@ -94,6 +94,10 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
     if not raw_api_key:
         return response
 
+    # NO loggear respuestas 429 (rate limit) — el rechazo NO debe contar como uso
+    if response.status_code == 429:
+        return response
+
     # Usar getattr para evitar fallos si request.state no tiene los atributos
     api_key_id = getattr(request.state, "api_key_id", None)
     user_id = getattr(request.state, "user_id", None)

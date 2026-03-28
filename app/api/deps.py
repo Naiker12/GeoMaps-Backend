@@ -105,7 +105,6 @@ async def get_user_from_api_key(
     
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
-    # CORRECCIÓN CRÍTICA: cargar .user con selectinload para evitar MissingGreenlet
     result = await db.execute(
         select(APIKey)
         .where(APIKey.key_hash == key_hash, APIKey.status == APIKeyStatus.ACTIVE)
@@ -115,6 +114,11 @@ async def get_user_from_api_key(
     
     if not db_key:
         raise HTTPException(status_code=401, detail="API Key inválida o revocada")
+        
+    # Proveer estado para el middleware de logs INMEDIATAMENTE después de validar la key
+    # para que si falla un límite de cuota u otra validación, el log tenga el user_id.
+    request.state.api_key_id = db_key.id
+    request.state.user_id = db_key.user_id
     
     # Validar Cuota Diaria Restrictiva (10 peticiones/día)
     from app.services.api_key_service import APIKeyService
@@ -126,10 +130,6 @@ async def get_user_from_api_key(
     # Actualizar último uso
     db_key.last_used = datetime.now()
     await db.commit()
-    
-    # Proveer estado para el middleware de logs
-    request.state.api_key_id = db_key.id
-    request.state.user_id = db_key.user_id
     
     # db_key.user ya está cargado por selectinload — NO hace lazy load
     return db_key.user
