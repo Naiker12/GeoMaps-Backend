@@ -5,7 +5,10 @@ from typing import List, Optional
 
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.db.models.user import User
-from app.schemas.layer import LayerResponse, LayerCreate, FeatureCollectionSchema
+from app.schemas.layer import (
+    LayerResponse, LayerCreate, FeatureCollectionSchema, LayerPublicResponse
+)
+from typing import List, Optional, Union
 from app.services.layer_service import LayerService
 
 router = APIRouter()
@@ -48,7 +51,7 @@ async def upload_layer(
         raise HTTPException(status_code=500, detail=f"Error procesando capa: {str(e)}")
 
 
-@router.get("/", response_model=List[LayerResponse])
+@router.get("/", response_model=List[Union[LayerResponse, LayerPublicResponse]])
 async def list_layers(
     visibility: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -58,7 +61,13 @@ async def list_layers(
         visibility = "PUBLIC"
 
     service = LayerService(db)
-    return await service.list_layers(visibility=visibility)
+    layers = await service.list_layers(visibility=visibility)
+
+    # Sin auth: serializar sin file_url
+    if current_user is None:
+        return [LayerPublicResponse.model_validate(layer) for layer in layers]
+
+    return layers
 
 
 @router.patch("/{layer_id}", response_model=LayerResponse)

@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional, Tuple, Sequence, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.api_key import APIKey, APIKeyStatus, APIKeyRole, APIKeyVisibility
-from app.repositories.api_key_repository import APIKeyRepository
+from app.repositories.api_key import APIKeyRepository
 from app.schemas.api_key import APIKeyCreate, APIKeyUpdate
 
 class APIKeyService:
@@ -59,7 +59,7 @@ class APIKeyService:
         if not is_admin and db_obj.user_id != user_id:
             return False
             
-        return await self.repository.delete(db_obj)
+        return await self.repository.delete(db_obj.id)
 
     async def get_key_by_hash(self, key_hash: str) -> Optional[APIKey]:
         return await self.repository.get_by_hash(key_hash)
@@ -76,6 +76,20 @@ class APIKeyService:
     async def log_api_usage(self, **kwargs):
         return await self.repository.log_usage(**kwargs)
 
+    async def log_failed_attempt(self, **kwargs):
+        return await self.repository.log_failed_attempt(**kwargs)
+
     async def check_daily_quota(self, user_id: uuid.UUID) -> bool:
         """Determina si el usuario tiene peticiones restantes hoy (Límite 10)."""
         return await self.repository.check_daily_quota(user_id)
+
+    # ─── Configuración Global (Admin) ──────────────────────────────────
+    
+    async def update_global_rate_limit(self, rpm: int, admin_id: uuid.UUID):
+        return await self.repository.update_global_rate_limit(rpm, admin_id)
+
+    async def toggle_global_traffic_pause(self, paused: bool, admin_id: uuid.UUID):
+        return await self.repository.toggle_global_traffic_pause(paused, admin_id)
+
+    async def update_global_ip_whitelist(self, ips: List[str], admin_id: uuid.UUID):
+        return await self.repository.update_global_ip_whitelist(ips, admin_id)

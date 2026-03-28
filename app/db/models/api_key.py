@@ -66,8 +66,8 @@ class APIKeyUsageLog(Base):
     __tablename__ = "api_key_usage_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    api_key_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    api_key_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"), index=True, nullable=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
 
     endpoint: Mapped[str] = mapped_column(String(255), index=True)
     method: Mapped[str] = mapped_column(String(10))
@@ -77,6 +77,7 @@ class APIKeyUsageLog(Base):
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(INET, nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    api_key_hint: Mapped[Optional[str]] = mapped_column(String(10), nullable=True) # Hint de la clave fallida
 
     # Relationships
     api_key = relationship("APIKey", back_populates="usage_logs")

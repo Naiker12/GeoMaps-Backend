@@ -100,21 +100,30 @@ async def get_user_from_api_key(
     
     import hashlib
     from datetime import datetime
-    from app.services.api_key_service import APIKeyService
+    from sqlalchemy.orm import selectinload
+    from app.db.models.api_key import APIKey, APIKeyStatus
     
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    service = APIKeyService(db)
-    db_key = await service.get_key_by_hash(key_hash)
+
+    # CORRECCIÓN CRÍTICA: cargar .user con selectinload para evitar MissingGreenlet
+    result = await db.execute(
+        select(APIKey)
+        .where(APIKey.key_hash == key_hash, APIKey.status == APIKeyStatus.ACTIVE)
+        .options(selectinload(APIKey.user))
+    )
+    db_key = result.scalar_one_or_none()
     
     if not db_key:
         raise HTTPException(status_code=401, detail="API Key inválida o revocada")
     
     # Validar Cuota Diaria Restrictiva (10 peticiones/día)
+    from app.services.api_key_service import APIKeyService
+    service = APIKeyService(db)
     has_quota = await service.check_daily_quota(db_key.user_id)
     if not has_quota:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="API Rate Limit Exceeded: Daily quota reached.")
     
-    # Actualizar último uso de forma asíncrona (fuego y olvido o commit rápido)
+    # Actualizar último uso
     db_key.last_used = datetime.now()
     await db.commit()
     
@@ -122,6 +131,7 @@ async def get_user_from_api_key(
     request.state.api_key_id = db_key.id
     request.state.user_id = db_key.user_id
     
+    # db_key.user ya está cargado por selectinload — NO hace lazy load
     return db_key.user
 
 
@@ -147,26 +157,31 @@ async def get_current_user_optional(
     db: AsyncSession = Depends(get_db),
     token: str | None = Depends(oauth2_scheme_optional),
 ) -> User | None:
-    """Retorna el usuario si hay token o API Key válidos, None si no.
-    Nunca levanta excepciones para permitir acceso público.
+    """Retorna el usuario si hay credenciales válidas, None si no hay nada.
+    IMPORTANTE: si se envía una API Key inválida, lanza 401 (no silencia).
     """
-    # 1. Intentar API Key (Programático o Portal-Developer)
-    try:
-        api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-        if api_key:
-            return await get_user_from_api_key(request, db)
-    except Exception:
-        # Silenciar cualquier error de API Key (inválida, expirada, etc)
-        pass
-        
-    # 2. Intentar Bearer Token (JWT / Supabase)
+    # 1. API Key — si se envió, debe ser válida (no degradar a anónimo)
+    api_key = (
+        request.headers.get("X-API-Key")
+        or request.query_params.get("api_key")
+    )
+    if api_key:
+        # NO envolver en try/except: si la key es inválida, lanzar 401
+        return await get_user_from_api_key(request, db)
+
+    # 2. Bearer Token / Cookie — si no hay nada, retornar None
     effective_token = token or request.cookies.get("access_token")
     if not effective_token:
         return None
 
     try:
-        from app.core.security.jwt_handler import decode_token, decode_supabase_token
-        payload = decode_token(effective_token) or decode_supabase_token(effective_token)
+        from app.core.security.jwt_handler import (
+            decode_token, decode_supabase_token
+        )
+        payload = (
+            decode_token(effective_token)
+            or decode_supabase_token(effective_token)
+        )
         if not payload:
             return None
 
@@ -176,7 +191,9 @@ async def get_current_user_optional(
 
         user_uuid = uuid.UUID(user_id)
         result = await db.execute(
-            select(User).where(or_(User.id == user_uuid, User.supabase_id == user_uuid))
+            select(User).where(
+                or_(User.id == user_uuid, User.supabase_id == user_uuid)
+            )
         )
         return result.scalar_one_or_none()
     except Exception:

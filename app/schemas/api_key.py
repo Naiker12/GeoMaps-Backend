@@ -38,6 +38,9 @@ class APIKeyResponse(APIKeyBase):
     total_requests: int
     total_tokens: int
 
+    # Distribución de tokens por módulo si aplica (solo en admin o resumen)
+    token_distribution: Optional[Dict[str, int]] = None
+
     # Solo en la respuesta inicial de creación
     key: Optional[str] = None
 
@@ -49,10 +52,10 @@ class APIKeyAdminResponse(APIKeyResponse):
 # ─── METRICS & STATS SCHEMAS ──────────────────────────────────────
 
 class TrafficDataPoint(BaseModel):
-    date: datetime
+    date: str
     requests: int
     errors: int
-    tokens: int
+    tokens: Any # Can be int or Dict[str, int] depending on the endpoint
 
 class EndpointDistribution(BaseModel):
     endpoint: str
@@ -68,6 +71,7 @@ class APIKeyStatsOverview(BaseModel):
     daily_requests: int = 0
     traffic_by_day: List[TrafficDataPoint]
     endpoint_distribution: Dict[str, int]
+    token_distribution: Optional[Dict[str, int]] = None
 
 # ─── CONFIGURATION SCHEMAS ────────────────────────────────────────
 

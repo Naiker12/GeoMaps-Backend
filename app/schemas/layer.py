@@ -3,19 +3,20 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-# Layer Schemas
 
 class LayerBase(BaseModel):
     name: str = Field(..., description="Nombre de la capa")
-    description: Optional[str] = Field(None, description="Descripción opcional")
-    category: Optional[str] = Field(None, description="Categoría temática")
-    source: Optional[str] = Field(None, description="Fuente de los datos (ej. IDECA, DANE, IGN...)")
-    visibility: str = Field(default="private", description="Visibilidad de la capa: private, team, public")
-    map_color: Optional[str] = Field("#3ECF8E", description="Color de la capa en Hex")
-    map_opacity: Optional[float] = Field(0.8, description="Opacidad de la capa (0 a 1)")
+    description: Optional[str] = Field(None)
+    category: Optional[str] = Field(None)
+    source: Optional[str] = Field(None)
+    visibility: str = Field(default="private")
+    map_color: Optional[str] = Field("#3ECF8E")
+    map_opacity: Optional[float] = Field(0.8)
+
 
 class LayerCreate(LayerBase):
     pass
+
 
 class LayerUpdate(BaseModel):
     name: Optional[str] = None
@@ -26,29 +27,39 @@ class LayerUpdate(BaseModel):
     map_color: Optional[str] = None
     map_opacity: Optional[float] = None
 
-class LayerResponse(LayerBase):
+
+# Schema público: sin file_url ni created_by
+class LayerPublicResponse(LayerBase):
     id: uuid.UUID
     geometry_type: Optional[str]
     source_type: Optional[str]
-    file_url: Optional[str]
-    created_by: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
+
 
     class Config:
         from_attributes = True
 
-# Feature Schemas (GeoJSON spec compatible)
 
+# Schema completo: solo para usuarios autenticados
+class LayerResponse(LayerPublicResponse):
+    """Respuesta completa con file_url para usuarios autenticados."""
+    file_url: Optional[str]
+    created_by: Optional[uuid.UUID]
+
+
+# GeoJSON
 class FeatureGeometry(BaseModel):
     type: str
     coordinates: List[Any]
+
 
 class FeatureSchema(BaseModel):
     type: str = "Feature"
     id: Optional[Any] = None
     geometry: FeatureGeometry
     properties: Dict[str, Any]
+
 
 class FeatureCollectionSchema(BaseModel):
     type: str = "FeatureCollection"

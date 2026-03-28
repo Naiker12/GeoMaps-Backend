@@ -90,3 +90,46 @@ async def admin_delete_api_key(
     if not success:
         raise HTTPException(status_code=404, detail="API Key no encontrada.")
     return None
+
+# --- Advanced Settings (Settings cards in UI) ---
+
+@router.patch("/settings/rate-limit")
+async def update_global_rate_limit(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+):
+    """Actualiza el límite de RPM global o por defecto (Solo ADMIN)."""
+    rpm = data.get("rpm_limit")
+    if not rpm:
+        raise HTTPException(status_code=400, detail="Se requiere rpm_limit")
+    
+    api_key_service = APIKeyService(db)
+    result = await api_key_service.update_global_rate_limit(rpm, current_admin.id)
+    return {"status": "success", "rpm_limit": result.rpm_limit}
+
+@router.post("/settings/pause")
+async def toggle_traffic_pause(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+):
+    """Pausa o reanuda el tráfico global de la API (Solo ADMIN)."""
+    paused = data.get("paused", False)
+    
+    api_key_service = APIKeyService(db)
+    result = await api_key_service.toggle_global_traffic_pause(paused, current_admin.id)
+    return {"status": "success", "paused": result.traffic_paused}
+
+@router.put("/settings/ip-whitelist")
+async def update_global_ip_whitelist(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user),
+):
+    """Configura la lista blanca de IPs globales (Solo ADMIN)."""
+    ips = data.get("ips", [])
+    
+    api_key_service = APIKeyService(db)
+    result = await api_key_service.update_global_ip_whitelist(ips, current_admin.id)
+    return {"status": "success", "ips": result}

@@ -41,65 +41,112 @@ app = FastAPI(
     openapi_url="/api/v1/openapi.json",
 )
 
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# CORRECCIÓN: allow_origins explícitos + allow_credentials=True son mutuamente
+# excluyentes con "*". Se usa lista explícita para desarrollo y producción.
+ALLOWED_ORIGINS = [
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",   # Vite
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+
+if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+    extra = [str(o).rstrip("/") for o in settings.BACKEND_CORS_ORIGINS]
+    ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS + extra))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Process-Time"],
 )
 
 
+# ── MIDDLEWARE DE LOGGING ─────────────────────────────────────────────────────
 @app.middleware("http")
 async def combined_trace_and_log_middleware(request: Request, call_next):
-    """Intercepta peticiones para medir tiempo y registrar logs de API Keys asíncronamente."""
+    """Intercepta peticiones para medir tiempo y registrar logs de API Keys."""
+    # Saltar OPTIONS (pre-flight CORS) inmediatamente
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+
+    endpoint = request.url.path
+    # Solo loggear rutas de la API
+    if not endpoint.startswith(settings.API_V1_STR):
+        return response
+
+    # Detectar si la petición lleva una API Key
+    raw_api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
     
-    # ── LOGGING DE API KEY ──
-    # Si la petición fue autenticada con API Key, get_user_from_api_key inyecta estos en request.state
-    if hasattr(request.state, "api_key_id") and hasattr(request.state, "user_id"):
-        from app.db.session import SessionLocal
-        from app.services.api_key_service import APIKeyService
-        import asyncio
-        
-        async def log_task(api_key_id, user_id, status_code, process_time_ms, endpoint, method, ip_address, user_agent):
-            async with SessionLocal() as db:
+    # Solo loggear si hay una API Key involucrada (no logeamos peticiones JWT/anónimas)
+    if not raw_api_key:
+        return response
+
+    # Usar getattr para evitar fallos si request.state no tiene los atributos
+    api_key_id = getattr(request.state, "api_key_id", None)
+    user_id = getattr(request.state, "user_id", None)
+
+    # Capturar hint de la key si la auth falló
+    api_key_hint = None
+    if not api_key_id and raw_api_key and len(raw_api_key) > 4:
+        api_key_hint = raw_api_key[-4:]
+
+    # Ejecutar logging en segundo plano para no bloquear el ciclo de request
+    import asyncio
+
+    async def log_task():
+        try:
+            from app.db.session import get_db
+            from app.services.api_key_service import APIKeyService
+
+            async for db in get_db():
                 service = APIKeyService(db)
-                await service.log_api_usage(
-                    api_key_id=api_key_id,
-                    user_id=user_id,
-                    endpoint=endpoint,
-                    method=method,
-                    status_code=status_code,
-                    response_time_ms=process_time_ms,
-                    tokens_used=1, # Default 1 token
-                    ip_address=ip_address,
-                    user_agent=user_agent
-                )
-        
-        # Ejecutar en segundo plano para no bloquear el request cycle
-        asyncio.create_task(
-            log_task(
-                request.state.api_key_id,
-                request.state.user_id,
-                response.status_code,
-                int(process_time * 1000),
-                request.url.path,
-                request.method,
-                request.client.host if request.client else None,
-                request.headers.get("user-agent")
-            )
-        )
-        
+                if api_key_id and user_id:
+                    await service.log_api_usage(
+                        api_key_id=api_key_id,
+                        user_id=user_id,
+                        endpoint=endpoint,
+                        method=request.method,
+                        status_code=response.status_code,
+                        response_time_ms=int(process_time * 1000),
+                        tokens_used=1,
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                    )
+                else:
+                    await service.log_failed_attempt(
+                        endpoint=endpoint,
+                        method=request.method,
+                        status_code=response.status_code,
+                        response_time_ms=int(process_time * 1000),
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                        api_key_hint=api_key_hint,
+                    )
+                break  # solo una iteración
+        except Exception as e:
+            logger.warning(f"log_task falló silenciosamente: {e}")
+
+    asyncio.create_task(log_task())
+
     return response
 
 
 setup_exception_handlers(app)
 
-# Registro de Rutas
+# ── RUTAS ─────────────────────────────────────────────────────────────────────
 app.include_router(auth_routes.router, prefix=settings.API_V1_STR)
 app.include_router(project_routes.router, prefix=f"{settings.API_V1_STR}/projects")
 app.include_router(layer_routes.router, prefix=f"{settings.API_V1_STR}/layers")
