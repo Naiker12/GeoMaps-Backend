@@ -33,9 +33,10 @@ class LayerPublicResponse(LayerBase):
     id: uuid.UUID
     geometry_type: Optional[str]
     source_type: Optional[str]
+    stats_config: Dict[str, Any] = {}
+    feature_card_config: Dict[str, Any] = {}
     created_at: datetime
     updated_at: datetime
-
 
     class Config:
         from_attributes = True

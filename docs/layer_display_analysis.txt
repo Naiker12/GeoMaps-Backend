@@ -1,0 +1,57 @@
+ANALISIS DETALLADO: VISUALIZACION Y ANALISIS DE CAPAS (GEO-STATS HUD)
+======================================================================
+
+Este documento detalla el comportamiento tecnico y estetico del sistema cuando se activan (prenden) las capas en el visor de GeoMaps.
+
+1. FLUJO DE DATOS AL ACTIVAR UNA CAPA
+-------------------------------------
+Cuando el usuario acciona el interruptor de una capa en el "LayerPanel":
+
+*   ESTADO GLOBAL: La capa pasa a estado `visible: true` dentro del `LayerContext`.
+*   CARGA DINAMICA: El sistema consulta el servicio `getLayerFeatures(layerId)` para obtener toda la geometria y metadata (GeoJSON).
+*   CACHE INTELIGENTE: Los datos se almacenan en memoria (`layerFeaturesCache`) para que el encendido/apagado sea instantaneo en usos posteriores.
+*   ANALISIS AUTOMATICO (HOOKS): El hook `useDynamicLayerStats` escanea todas las propiedades de los objetos de la capa para calcular metricas sin necesidad de configuracion previa.
+
+2. ELEMENTOS MOSTRADOS EN LA INTERFAZ (HUD)
+-------------------------------------------
+El panel de "Estadisticas" (Analysis-HUD) se activa automaticamente y muestra:
+
+A. KPI CARDS (METRICAS CLAVE):
+   - Entidades/Identificador: Conteo total de elementos (puntos, poligonos) activos o filtrados.
+   - Densidad: Calculo dinamico de "hab/km²" o "unidades/m²" extrayendo datos de `pob`, `habitantes` o `area_m2`.
+   - Cobertura: Porcentaje de progreso o alcance del proyecto/capa actual.
+   - Capas Analizadas: Contador de cuantas capas estan contribuyendo al analisis actual.
+
+B. GRAFICAS DINAMICAS (HEURISTICAS):
+   - El sistema detecta automaticamente las columnas mas importantes (ej: Sector, Estrato, Categoria) y genera:
+     * 1 Bar Chart (Grafica de Barras): Para la distribucion principal.
+     * 2 Pie Charts (Graficas de Torta): Para distribuciones secundarias (ej: Barrios o Tipos).
+     * Chart Pie Interactivo: Una version premium para exploracion profunda.
+
+C. MODOS DE VISUALIZACION:
+   - Modo Global: Muestra estadisticas agregadas de todas las capas activas.
+   - Modo Entidad (Feature Mode): Si el usuario hace click en un punto especifico del mapa, el HUD cambia para mostrar los detalles especificos de ese registro (Nombre del establecimiento, Código DANE, etc.).
+
+3. INTERACTIVIDAD Y FILTRADO (CROSS-FILTERING)
+----------------------------------------------
+- Filtro por Grafica: Al hacer click en una barra o sector de la torta, TODO el mapa se filtra para mostrar solo esos elementos.
+- Sincronizacion: El HUD actualiza sus metricas en tiempo real segun el filtro aplicado.
+- Hover Effects: Pasar el mouse sobre el mapa resalta la fila correspondiente en la tabla de datos y destaca el elemento en las graficas.
+
+4. ESTETICA Y EXPERIENCIA PREMIUM (UI/UX)
+-----------------------------------------
+El diseño sigue el estandar "Admin Panel SaaS" (Workflow /turbo):
+- Efecto Glassmorphism: Fondos con desenfoque (`backdrop-blur`) y transparencias sutiles.
+- Animaciones: Micro-animaciones en las barras de las graficas y el indicador "Vivo" (pulsante).
+- Tipografia: Uso de numeros tabulares para que las cifras no "salten" al actualizarse.
+- Paleta de Colores: Uso de variables CSS dinámicas (`--chart-1` a `--chart-5`) que se adaptan al tema claro/oscuro.
+
+5. DATOS ESPECIFICOS PROCESADOS (BACKEND -> FRONTEND)
+-----------------------------------------------------
+El sistema prioriza y muestra automaticamente estos campos si existen en la capa:
+- Identificadores: NOMBRE_ESTABLECIMIENTO, COLEGIO, PUESTO, DANE, CODIGO.
+- Numericos: pob, habitantes, area_m2, votos, mesas, total.
+- Categorias: comuna, estrato, barrio, sector, zona, tipo, categoria.
+
+======================================================================
+ANALISIS GENERADO POR ANTIGRAVITY - GEOMAPS CORE ENGINE

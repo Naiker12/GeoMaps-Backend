@@ -46,6 +46,7 @@ class LayerRepository(BaseRepository[Layer]):
         mappings = [
             {
                 "layer_id": layer_id,
+                "display_name": feat.get("display_name"),
                 "properties": feat["properties"],
                 # PostGIS: Convertir WKT a GEOMETRY indexable
                 "geom": text(f"ST_GeomFromText('{feat['geom_wkt']}', 4326)")

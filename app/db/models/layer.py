@@ -33,7 +33,9 @@ class Layer(Base):
     )
     map_color: Mapped[Optional[str]] = mapped_column(String(50), default="#3ECF8E")
     map_opacity: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
-    file_url: Mapped[Optional[str]] = mapped_column(Text) # Ubicación en Supabase Storage
+    file_url: Mapped[Optional[str]] = mapped_column(Text)
+    stats_config: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)          # Configuración de gráficas y KPIs
+    feature_card_config: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)   # Configuración de ficha del punto
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
@@ -51,6 +53,7 @@ class LayerFeature(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     layer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("layers.id", ondelete="CASCADE"), nullable=False, index=True)
     
+    display_name: Mapped[Optional[str]] = mapped_column(Text)  # Nombre canónico extraído por el normalizador
     properties: Mapped[Optional[dict]] = mapped_column(JSONB) # Metadata original del archivo GIS
     geom: Mapped[Any] = mapped_column(Geometry("GEOMETRY", srid=4326), nullable=False, index=True) # Index automatizado con GiST
     

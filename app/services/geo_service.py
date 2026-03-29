@@ -24,6 +24,8 @@ class GeoService:
         epsg_target: int = 4326
     ) -> list[dict[str, Any]]:
         """Transforma datos GeoJSON crudos en documentos WKT aptos para base de datos."""
+        from app.utils.feature_normalizer import detect_display_name
+
         features = geojson_data.get("features", [])
         if not features:
             raise GeoProcessingError("GeoJSON vacío o inválido")
@@ -33,10 +35,12 @@ class GeoService:
             gdf = gdf.to_crs(epsg=epsg_target)
 
         processed_features = []
-        for _, row in gdf.iterrows():
+        for idx, (_, row) in enumerate(gdf.iterrows()):
             if row.geometry and not row.geometry.is_empty:
+                props = row.drop("geometry").to_dict()
                 processed_features.append({
-                    "properties": row.drop("geometry").to_dict(),
+                    "display_name": detect_display_name(props, idx),
+                    "properties": props,
                     "geom_wkt": row.geometry.wkt
                 })
 
