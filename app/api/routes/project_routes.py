@@ -30,7 +30,8 @@ async def list_projects(
 async def list_public_projects(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    service: ProjectService = Depends(deps.get_project_service)
+    service: ProjectService = Depends(deps.get_project_service),
+    current_user: Optional[User] = Depends(deps.get_current_user_optional)
 ):
     return await service.get_projects(skip=skip, limit=limit, only_public=True)
 
