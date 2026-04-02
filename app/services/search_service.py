@@ -70,6 +70,12 @@ class SearchService:
                 lf.layer_id::text,
                 lf.properties,
                 ST_AsGeoJSON(lf.geom)::json AS geometry,
+                ARRAY[
+                    ST_XMin(ST_Envelope(lf.geom)),
+                    ST_YMin(ST_Envelope(lf.geom)),
+                    ST_XMax(ST_Envelope(lf.geom)),
+                    ST_YMax(ST_Envelope(lf.geom))
+                ] AS bbox,
                 ST_Distance(
                     lf.geom::geography,
                     ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
@@ -93,6 +99,7 @@ class SearchService:
             props["display_name"] = r["display_name"]
             props["layer_id"] = r["layer_id"]
             props["source"] = "feature"
+            props["bbox"] = r["bbox"]
             dist = r["dist_metros"]
             if dist is not None:
                 if dist < 1000:
@@ -116,6 +123,7 @@ class SearchService:
         Todo pasa por display_name y search_vector que fueron poblados por el normalizador.
         """
         # 1. Features GIS
+        # Usamos un Search Rank: FTS tiene peso 2, Similitud Trigámica tiene peso 5
         stmt_features = text("""
             SELECT 
                 lf.id::text,
@@ -123,15 +131,22 @@ class SearchService:
                 lf.layer_id::text,
                 lf.properties,
                 ST_AsGeoJSON(lf.geom)::json AS geometry,
-                ts_rank(
-                    lf.search_vector,
-                    plainto_tsquery('spanish', :q)
-                ) AS rank
+                ARRAY[
+                    ST_XMin(ST_Envelope(lf.geom)),
+                    ST_YMin(ST_Envelope(lf.geom)),
+                    ST_XMax(ST_Envelope(lf.geom)),
+                    ST_YMax(ST_Envelope(lf.geom))
+                ] AS bbox,
+                (
+                    ts_rank(lf.search_vector, plainto_tsquery('spanish', :q)) * 2 +
+                    similarity(lf.display_name, :q) * 5
+                ) AS search_rank
             FROM layer_features lf
             WHERE
                 lf.search_vector @@ plainto_tsquery('spanish', :q)
-                OR lf.display_name ILIKE :ilike
-            ORDER BY rank DESC, lf.display_name
+                OR unaccent(lf.display_name) ILIKE unaccent(:ilike)
+                OR similarity(lf.display_name, :q) > 0.25
+            ORDER BY search_rank DESC, lf.display_name
             LIMIT 15
         """)
 
@@ -147,6 +162,7 @@ class SearchService:
             props["display_name"] = r["display_name"]
             props["layer_id"] = r["layer_id"]
             props["source"] = "feature"
+            props["bbox"] = r["bbox"]
             gis_features.append({
                 "type": "Feature",
                 "id": r["id"],
@@ -154,32 +170,72 @@ class SearchService:
                 "properties": props
             })
 
-        # 2. Proyectos
+        # 2. Proyectos (Inmobiliarios)
         stmt_projects = text("""
-            SELECT id::text, name, description
-            FROM projects
-            WHERE name ILIKE :ilike
+            SELECT 
+                p.id::text,
+                p.name AS display_name,
+                p.description,
+                ST_AsGeoJSON(pl.geometry)::json AS geometry,
+                ARRAY[
+                    ST_XMin(ST_Envelope(pl.geometry)),
+                    ST_YMin(ST_Envelope(pl.geometry)),
+                    ST_XMax(ST_Envelope(pl.geometry)),
+                    ST_YMax(ST_Envelope(pl.geometry))
+                ] AS bbox,
+                similarity(p.name, :q) as project_rank
+            FROM projects p
+            LEFT JOIN project_locations pl ON p.id = pl.project_id
+            WHERE 
+                to_tsvector('spanish', p.name) @@ plainto_tsquery('spanish', :q)
+                OR unaccent(p.name) ILIKE unaccent(:ilike)
+                OR similarity(p.name, :q) > 0.25
+            ORDER BY project_rank DESC, p.name
             LIMIT 5
         """)
-        result_projects = await self.db.execute(stmt_projects, {"ilike": f"%{query}%"})
+        result_projects = await self.db.execute(stmt_projects, {
+            "q": query,
+            "ilike": f"%{query}%"
+        })
         project_rows = result_projects.mappings().all()
 
-        project_features = [
-            {
+        project_features = []
+        for p in project_rows:
+            project_features.append({
                 "type": "Feature",
                 "id": str(p["id"]),
-                "geometry": None,
+                "geometry": p["geometry"],
                 "properties": {
-                    "name": p["name"],
-                    "display_name": p["name"],
+                    "id": str(p["id"]),
+                    "name": p["display_name"],
+                    "display_name": p["display_name"],
                     "description": p["description"],
-                    "source": "project"
+                    "source": "project",
+                    "bbox": p["bbox"]
                 }
-            }
-            for p in project_rows
-        ]
+            })
 
         return {
             "type": "FeatureCollection",
-            "features": project_features + gis_features
+            "features": gis_features + project_features
         }
+
+    async def log_view(self, feature_id: str, source: str) -> None:
+        """Actualiza la fecha de visualización de una entidad o proyecto."""
+        if source == "feature":
+            stmt = text("""
+                UPDATE layer_features 
+                SET fecha_ubicado = NOW() 
+                WHERE id = :id::uuid
+            """)
+        elif source == "project":
+            stmt = text("""
+                UPDATE projects 
+                SET updated_at = NOW() 
+                WHERE id = :id::uuid
+            """)
+        else:
+            return
+
+        await self.db.execute(stmt, {"id": feature_id})
+        await self.db.commit()

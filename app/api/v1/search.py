@@ -29,3 +29,16 @@ async def get_suggestions(
     search_service = SearchService(db)
     result = await search_service.get_suggestions(limit)
     return result
+
+@router.post("/viewed")
+async def mark_as_viewed(
+    id: str,
+    source: str = Query(..., regex="^(feature|project)$"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Registra que un usuario seleccionó y visualizó un resultado de búsqueda.
+    """
+    search_service = SearchService(db)
+    await search_service.log_view(id, source)
+    return {"status": "ok"}
