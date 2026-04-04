@@ -7,11 +7,15 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from ultralytics import YOLO
+
+# Registro global de modelos de ML para acceso desde servicios
+ml_models = {}
 
 # Importación de Rutas Seguras
 from app.api.v1 import (
     auth_routes, layer_routes, 
-    download_routes, search_routes, api_keys
+    download_routes, search_routes, api_keys, detection_routes
 )
 from app.api.v1.admin import router as admin_router
 from app.api.routes import project_routes
@@ -27,9 +31,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Maneja eventos de encendido y apagado de la aplicación."""
-    logger.info("Arrancando GeoMaps.")
+    logger.info("Arrancando GeoMaps Engine.")
+    
+    # Carga de modelo YOLOv8 para detección de objetos
+    try:
+        logger.info("Cargando motor YOLOv8...")
+        ml_models["yolo"] = YOLO("yolov8n.pt") 
+        logger.info("YOLOv8 cargado exitosamente.")
+    except Exception as e:
+        logger.error(f"Error al cargar el modelo YOLOv8: {e}")
+        
     yield
-    logger.info("Apagando GeoMaps Engine.")
+    
+    # Limpieza
+    ml_models.clear()
+    logger.info("GeoMaps Engine apagado.")
 
 
 app = FastAPI(
@@ -158,6 +174,7 @@ app.include_router(download_routes.router, prefix=f"{settings.API_V1_STR}/resour
 app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search")
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
+app.include_router(detection_routes.router, prefix=f"{settings.API_V1_STR}/detection", tags=["Object Detection"])
 
 
 @app.get("/health")
