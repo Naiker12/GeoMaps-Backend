@@ -7,15 +7,14 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from ultralytics import YOLO
 
-# Registro global de modelos de ML para acceso desde servicios
+# Registro global de modelos de ML para acceso desde servicios (Reservado para futuro)
 ml_models = {}
 
 # Importación de Rutas Seguras
 from app.api.v1 import (
     auth_routes, layer_routes, 
-    download_routes, search_routes, api_keys, detection_routes
+    download_routes, search_routes, api_keys
 )
 from app.api.v1.admin import router as admin_router
 from app.api.routes import project_routes
@@ -32,17 +31,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Maneja eventos de encendido y apagado de la aplicación."""
     logger.info("Arrancando GeoMaps Engine.")
-    
-    # Carga de modelo YOLOv8 para detección de objetos
-    try:
-        logger.info("Cargando motor YOLOv8...")
-        ml_models["yolo"] = YOLO("yolov8n.pt") 
-        logger.info("YOLOv8 cargado exitosamente.")
-    except Exception as e:
-        logger.error(f"Error al cargar el modelo YOLOv8: {e}")
-        
+    # El motor YOLO ha sido deshabilitado temporalmente para optimizar recursos
     yield
-    
     # Limpieza
     ml_models.clear()
     logger.info("GeoMaps Engine apagado.")
@@ -58,8 +48,6 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# CORRECCIÓN: allow_origins explícitos + allow_credentials=True son mutuamente
-# excluyentes con "*". Se usa lista explícita para desarrollo y producción.
 ALLOWED_ORIGINS = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
@@ -89,7 +77,6 @@ app.add_middleware(
 @app.middleware("http")
 async def combined_trace_and_log_middleware(request: Request, call_next):
     """Intercepta peticiones para medir tiempo y registrar logs de API Keys."""
-    # Saltar OPTIONS (pre-flight CORS) inmediatamente
     if request.method == "OPTIONS":
         return await call_next(request)
 
@@ -99,38 +86,27 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
 
     endpoint = request.url.path
-    # Solo loggear rutas de la API
     if not endpoint.startswith(settings.API_V1_STR):
         return response
 
-    # Detectar si la petición lleva una API Key
     raw_api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-    
-    # Solo loggear si hay una API Key involucrada (no logeamos peticiones JWT/anónimas)
     if not raw_api_key:
         return response
 
-    # NO loggear respuestas 429 (rate limit) — el rechazo NO debe contar como uso
     if response.status_code == 429:
         return response
 
-    # Usar getattr para evitar fallos si request.state no tiene los atributos
     api_key_id = getattr(request.state, "api_key_id", None)
     user_id = getattr(request.state, "user_id", None)
-
-    # Capturar hint de la key si la auth falló
     api_key_hint = None
     if not api_key_id and raw_api_key and len(raw_api_key) > 4:
         api_key_hint = raw_api_key[-4:]
 
-    # Ejecutar logging en segundo plano para no bloquear el ciclo de request
     import asyncio
-
     async def log_task():
         try:
             from app.db.session import get_db
             from app.services.api_key_service import APIKeyService
-
             async for db in get_db():
                 service = APIKeyService(db)
                 if api_key_id and user_id:
@@ -155,12 +131,11 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
                         user_agent=request.headers.get("user-agent"),
                         api_key_hint=api_key_hint,
                     )
-                break  # solo una iteración
+                break
         except Exception as e:
             logger.warning(f"log_task falló silenciosamente: {e}")
 
     asyncio.create_task(log_task())
-
     return response
 
 
@@ -174,7 +149,10 @@ app.include_router(download_routes.router, prefix=f"{settings.API_V1_STR}/resour
 app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search")
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
-app.include_router(detection_routes.router, prefix=f"{settings.API_V1_STR}/detection", tags=["Object Detection"])
+
+# Rutas de IA
+from app.api.v1.endpoints import ia_router
+app.include_router(ia_router.router, prefix=f"{settings.API_V1_STR}/ia", tags=["Artificial Intelligence"])
 
 
 @app.get("/health")
