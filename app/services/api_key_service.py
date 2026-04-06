@@ -82,14 +82,3 @@ class APIKeyService:
     async def check_daily_quota(self, user_id: uuid.UUID) -> bool:
         """Determina si el usuario tiene peticiones restantes hoy (Límite 10)."""
         return await self.repository.check_daily_quota(user_id)
-
-    # ─── Configuración Global (Admin) ──────────────────────────────────
-    
-    async def update_global_rate_limit(self, rpm: int, admin_id: uuid.UUID):
-        return await self.repository.update_global_rate_limit(rpm, admin_id)
-
-    async def toggle_global_traffic_pause(self, paused: bool, admin_id: uuid.UUID):
-        return await self.repository.toggle_global_traffic_pause(paused, admin_id)
-
-    async def update_global_ip_whitelist(self, ips: List[str], admin_id: uuid.UUID):
-        return await self.repository.update_global_ip_whitelist(ips, admin_id)

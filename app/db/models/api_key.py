@@ -52,7 +52,6 @@ class APIKey(Base):
     
     usage_logs = relationship("APIKeyUsageLog", back_populates="api_key", cascade="all, delete-orphan")
     daily_stats = relationship("APIKeyDailyStats", back_populates="api_key", cascade="all, delete-orphan")
-    ip_whitelist = relationship("APIKeyIPWhitelist", back_populates="api_key", cascade="all, delete-orphan")
 
     @property
     def user_email(self) -> Optional[str]:
@@ -82,36 +81,6 @@ class APIKeyUsageLog(Base):
     # Relationships
     api_key = relationship("APIKey", back_populates="usage_logs")
 
-class APIKeyIPWhitelist(Base):
-    __tablename__ = "api_key_ip_whitelist"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    api_key_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"), index=True, nullable=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    
-    cidr_block: Mapped[str] = mapped_column(CIDR, nullable=False)
-    label: Mapped[Optional[str]] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    api_key = relationship("APIKey", back_populates="ip_whitelist")
-
-class APIKeyRateLimitConfig(Base):
-    __tablename__ = "api_key_rate_limit_config"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
-    
-    rpm_limit: Mapped[int] = mapped_column(Integer, default=1000)
-    daily_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    monthly_quota: Mapped[int] = mapped_column(Integer, default=500000)
-    
-    traffic_paused: Mapped[bool] = mapped_column(Boolean, default=False)
-    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    paused_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 class APIKeyDailyStats(Base):
     __tablename__ = "api_key_daily_stats"

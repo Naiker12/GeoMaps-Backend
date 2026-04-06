@@ -28,8 +28,9 @@ class ChatResponse(BaseModel):
     tokens_output: int = 0
     cost: float = 0.0
     latency_ms: int = 0
-    tools_called: List[Dict[str, Any]] = []
-    tools_called_raw: List[Dict[str, Any]] = []
+    tools_called: List[Any] = []
+    tools_called_raw: List[Any] = []
+    map_actions: List[Dict[str, Any]] = []
 
 class IAModelConfig(BaseModel):
     id: Optional[UUID4] = None

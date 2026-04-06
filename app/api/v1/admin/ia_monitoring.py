@@ -18,7 +18,7 @@ async def get_ia_stats(
 ):
     """Obtiene estadísticas agregadas de consumo de IA para el Dashboard."""
     
-    # 1. Resumen General
+    # Resumen General de Consumo
     summary_stmt = text("""
         SELECT 
             COUNT(*) as total_requests,
@@ -30,7 +30,7 @@ async def get_ia_stats(
     """)
     summary = (await db.execute(summary_stmt, {"days": days})).mappings().one()
 
-    # 2. Consumo por Modelo
+    # Desglose de Consumo por Modelo
     model_usage_stmt = text("""
         SELECT 
             model as model_id, 
@@ -44,7 +44,7 @@ async def get_ia_stats(
     """)
     models = (await db.execute(model_usage_stmt, {"days": days})).mappings().all()
 
-    # 3. Datos Históricos (para gráficas)
+    # Histórico de Actividad Temporal
     history_stmt = text("""
         SELECT 
             DATE_TRUNC('day', created_at) as date,
@@ -69,7 +69,14 @@ async def get_ia_audit_logs(
     offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
-    """Lista detallada de logs de auditoría de IA."""
+    """Lista detallada de logs de auditoría de IA con soporte para paginación."""
+    
+    # Obtener el conteo total de registros
+    count_stmt = text("SELECT COUNT(*) FROM ia_audit_logs")
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # Obtener el listado paginado
     stmt = text("""
         SELECT a.*, u.full_name as user_name
         FROM ia_audit_logs a
@@ -78,7 +85,12 @@ async def get_ia_audit_logs(
         LIMIT :limit OFFSET :offset
     """)
     result = await db.execute(stmt, {"limit": limit, "offset": offset})
-    return result.mappings().all()
+    logs = result.mappings().all()
+
+    return {
+        "items": [dict(log) for log in logs],
+        "total": total
+    }
 
 @router.get("/models", response_model=List[IAModelConfig])
 async def list_all_models(db: AsyncSession = Depends(get_db)):
