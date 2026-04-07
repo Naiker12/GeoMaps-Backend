@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.schemas.ia import ChatRequest, ChatResponse, Conversation, MessageRead, IAModelConfig, IASuggestion
 from app.services.ia.agent_service import AgentService
 from app.services.ia.history_service import HistoryService
+from app.core.exceptions import LLMException, LLMRateLimitException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -69,6 +70,12 @@ async def chat_ia(
     agent = AgentService(db)
     try:
         return await agent.chat(request, current_user)
+    except LLMRateLimitException as e:
+        logger.warning(f"Rate limit hit in ChatIA: {str(e)}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except LLMException as e:
+        logger.error(f"LLM Error in ChatIA: {str(e)}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Critical error in ChatIA: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

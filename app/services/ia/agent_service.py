@@ -11,6 +11,7 @@ from app.services.ia.prompt_builder import PromptBuilder
 from app.services.ia.history_service import HistoryService
 from app.services.ia.tools_service import ToolsService
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
+from app.core.exceptions import LLMException, LLMRateLimitException
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,7 @@ class AgentService:
         final_response_content = ""
         map_actions = []
         tools_called = []
+        analytics_data = None
 
         try:
             # Llamada Inicial
@@ -137,7 +139,10 @@ class AgentService:
             )
             
             if response.get("status") == "error":
-                raise Exception(response.get("error_message"))
+                msg = response.get("error_message", "Unknown Error")
+                if "429" in msg:
+                    raise LLMRateLimitException(f"OpenRouter Rate Limit: {msg}")
+                raise LLMException(msg)
 
             total_tokens_in += response.get("tokens_input", 0)
             total_tokens_out += response.get("tokens_output", 0)
@@ -166,9 +171,12 @@ class AgentService:
                     tool_result = await self._execute_tool(func_name, func_args)
                     tools_called.append(func_name)
                     
-                    # Si es una acción del mapa, la guardamos para el frontend
-                    if isinstance(tool_result, dict) and tool_result.get("map_action"):
-                        map_actions.append(tool_result)
+                    # Capturar acciones de mapa y analytics
+                    if isinstance(tool_result, dict):
+                        if tool_result.get("map_action"):
+                            map_actions.append(tool_result)
+                        if tool_result.get("analytics_data"):
+                            analytics_data = tool_result.get("analytics_data")
 
                     # Agregar resultado al historial envíado al LLM
                     messages.append({
@@ -197,7 +205,10 @@ class AgentService:
                     tools=tools if tools else None
                 )
                 if response.get("status") == "error":
-                    raise Exception(response.get("error_message"))
+                    msg = response.get("error_message", "Unknown Error")
+                    if "429" in msg:
+                        raise LLMRateLimitException(f"OpenRouter Rate Limit (loop): {msg}")
+                    raise LLMException(msg)
 
                 total_tokens_in += response.get("tokens_input", 0)
                 total_tokens_out += response.get("tokens_output", 0)
@@ -208,7 +219,11 @@ class AgentService:
             # 6. Guardar Respuesta Final
             await self.history_service.save_message(
                 conv_id, "assistant", final_response_content,
-                metadata={"model": model_config.model_id, "map_actions": map_actions}
+                metadata={
+                    "model": model_config.model_id, 
+                    "map_actions": map_actions,
+                    "analytics_data": analytics_data
+                }
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -228,7 +243,9 @@ class AgentService:
                 cost=cost,
                 latency_ms=latency_ms,
                 tools_called=tools_called,
-                map_actions=map_actions
+                tools_called_raw=msg.get("tool_calls") or [],
+                map_actions=map_actions,
+                analytics_data=analytics_data
             )
 
         except Exception as e:
@@ -242,6 +259,8 @@ class AgentService:
                 return await self.tools_service.consultar_predios(**args)
             elif name == "analizar_zona_extent":
                 return await self.tools_service.analizar_zona_extent(**args)
+            elif name == "consultar_estadisticas_capa":
+                return await self.tools_service.consultar_estadisticas_capa(**args)
             elif name == "activate_layer":
                 return await self.tools_service.activate_layer(**args)
             elif name == "zoom_to_location":

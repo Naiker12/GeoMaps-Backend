@@ -85,6 +85,29 @@ class GeoProcessingError(MIDASException):
         )
 
 
+class LLMException(MIDASException):
+    def __init__(
+        self, 
+        message: str, 
+        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code: str = "LLM_ERROR"
+    ):
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status_code,
+        )
+
+
+class LLMRateLimitException(LLMException):
+    def __init__(self, message: str = "Límite de peticiones de IA alcanzado (Rate Limit)."):
+        super().__init__(
+            message=message,
+            code="LLM_RATE_LIMIT",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+
 # ───── Handlers ─────
 
 

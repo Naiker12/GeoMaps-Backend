@@ -143,6 +143,9 @@ def decode_token(token: str) -> Optional[dict[str, Any]]:
     except JoseError as exc:
         if "expired" in str(exc).lower():
             logger.warning(f"Token local expirado: {exc}")
+        elif "unsupported_algorithm" in str(exc).lower():
+            # Esto es normal cuando se intenta validar un token de Supabase con HS256 local
+            logger.debug(f"Algoritmo no soportado localmente (probablemente Supabase): {exc}")
         else:
             logger.warning(f"Falla en verificación local: {exc}")
         return None
