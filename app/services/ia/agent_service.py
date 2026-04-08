@@ -13,6 +13,15 @@ from app.services.ia.tools_service import ToolsService
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
 from app.core.exceptions import LLMException, LLMRateLimitException
 
+GRAFICO_KEYWORDS = ["gráfico", "grafica", "chart", "visualiza", "barras", "pastel", "pie", "línea", "muéstrame en gráfico"]
+
+def needs_chart_clarification(message: str) -> bool:
+    """Retorna True si el usuario quiere un gráfico pero no especificó el tipo."""
+    msg_lower = message.lower()
+    has_chart_intent = any(kw in msg_lower for kw in GRAFICO_KEYWORDS)
+    chart_prefs_complete = "barras" in msg_lower or "pastel" in msg_lower or "línea" in msg_lower or "pie" in msg_lower
+    return has_chart_intent and not chart_prefs_complete
+
 logger = logging.getLogger(__name__)
 
 class AgentService:
@@ -51,15 +60,57 @@ class AgentService:
         row = result.mappings().one_or_none()
         return IAModelConfig(**row) if row else None
 
-    async def _get_available_layers(self) -> List[str]:
-        """Obtiene todos los nombres de las capas disponibles en el proyecto."""
+    async def _get_available_layers(self) -> List[Dict[str, Any]]:
+        """Obtiene nombres y metadatos de campos de las capas disponibles."""
         try:
-            query = text("SELECT name FROM public.layers WHERE visibility != 'PRIVATE'")
+            # Seleccionar nombre y configuraciones de campos
+            query = text("""
+                SELECT name, stats_config, feature_card_config 
+                FROM public.layers 
+                WHERE visibility != 'PRIVATE'
+            """)
             result = await self.db.execute(query)
             rows = result.fetchall()
-            return [row[0] for row in rows]
+            
+            layers_metadata = []
+            for row in rows:
+                name, stats, card = row
+                fields = []
+                
+                # Intentar sacar campos del config de la ficha
+                if card and isinstance(card, dict) and "sections" in card:
+                    for section in card["sections"]:
+                        for field in section.get("fields", []):
+                            fields.append(f"{field.get('key')} ({field.get('label')})")
+                
+                # O del config de estadísticas
+                elif stats and isinstance(stats, dict) and "kpis" in stats:
+                    for kpi in stats["kpis"]:
+                        fields.append(f"{kpi.get('field')} ({kpi.get('label')})")
+                
+                # FALLBACK: Si no hay config, traer 1 ejemplo real de la base de datos
+                if not fields:
+                    try:
+                        sample_query = text("""
+                            SELECT properties FROM layer_features 
+                            WHERE layer_id = (SELECT id FROM layers WHERE name = :name LIMIT 1) 
+                            LIMIT 1
+                        """)
+                        sample_res = await self.db.execute(sample_query, {"name": name})
+                        sample_row = sample_res.scalar()
+                        if sample_row and isinstance(sample_row, dict):
+                            # Tomar hasta 8 llaves para dar contexto
+                            fields = [f"{k}" for k in list(sample_row.keys())[:8]]
+                    except Exception:
+                        pass
+                
+                layers_metadata.append({
+                    "name": name,
+                    "fields": fields[:12] # Limitar para no saturar tokens
+                })
+            return layers_metadata
         except Exception as e:
-            logger.error(f"Error cargando capas disponibles: {e}")
+            logger.error(f"Error cargando metadatos de capas: {e}")
             return []
 
     async def chat(self, request: ChatRequest, user: Any) -> ChatResponse:
@@ -79,11 +130,29 @@ class AgentService:
                 model_id=model_config.model_id
             )
 
-        history = await self.history_service.get_messages(conv_id, user.id)
+        history = await self.history_service.get_trimmed_history(conv_id, user.id, max_messages=8)
         if history is None:
             # Si no hay historial o la conversa no es del usuario, crear una
             # (En el flujo real frontend suele crearla primero, pero manejamos fallback)
             pass
+
+        if needs_chart_clarification(request.message):
+            final_response = "Para preparar tu gráfico, por favor indícame:\n1. ¿Tipo de gráfico? (Barras, Pastel, Línea)\n2. ¿Nivel de detalle? (Resumen, Completo, Por barrio)\n3. ¿Quieres compararlo con otra variable o período?"
+            await self.history_service.save_message(conv_id, "user", request.message)
+            await self.history_service.save_message(conv_id, "assistant", final_response)
+            return ChatResponse(
+                message=final_response,
+                conversation_id=conv_id,
+                model_used=model_config.name,
+                tokens_input=0,
+                tokens_output=0,
+                cost=0.0,
+                latency_ms=0,
+                tools_called=[],
+                tools_called_raw=[],
+                map_actions=[],
+                analytics_data=None
+            )
 
         # 2.5 Obtener capas disponibles para informar al modelo
         available_layers = await self._get_available_layers()
@@ -91,7 +160,7 @@ class AgentService:
         # 3. Construir Prompts
         system_prompt = self.prompt_builder.build_system_prompt(
             bbox=request.context_mapa.get("extent") if request.context_mapa else None,
-            active_layers=request.context_mapa.get("active_layers") if request.context_mapa else None,
+            active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
             user_name=user.full_name or user.email
         )
@@ -173,8 +242,17 @@ class AgentService:
                     
                     # Capturar acciones de mapa y analytics
                     if isinstance(tool_result, dict):
+                        # Acción única
                         if tool_result.get("map_action"):
                             map_actions.append(tool_result)
+                        # Múltiples acciones
+                        if tool_result.get("map_actions"):
+                            for action in tool_result["map_actions"]:
+                                # Estandarizar 'type' a 'map_action' si es necesario
+                                if "type" in action and "map_action" not in action:
+                                    action["map_action"] = action.pop("type")
+                                map_actions.append(action)
+                        
                         if tool_result.get("analytics_data"):
                             analytics_data = tool_result.get("analytics_data")
 
@@ -265,23 +343,54 @@ class AgentService:
                 return await self.tools_service.activate_layer(**args)
             elif name == "zoom_to_location":
                 return await self.tools_service.zoom_to_location(**args)
+            elif name == "buscar_y_mostrar_entidad":
+                return await self.tools_service.buscar_y_mostrar_entidad(**args)
             else:
                 return f"Error: La herramienta {name} no existe."
         except Exception as e:
             return {"error": str(e)}
 
     async def _save_audit_log(self, user_id: UUID, conversation_id: UUID, model_name: str, tokens_in: int, tokens_out: int, cost: float, latency_ms: int):
-        stmt = text("""
-            INSERT INTO ia_audit_logs (user_id, conversation_id, model, tokens_input, tokens_output, cost, latency_ms, status)
-            VALUES (:uid, :cid, :model, :tin, :tout, :cost, :lat, 'success')
+        # 1. Buscar si ya existe una entrada para esta sesión (conversación + modelo)
+        stmt_check = text("""
+            SELECT id FROM ia_audit_logs 
+            WHERE conversation_id = :cid AND model = :model 
+            LIMIT 1
         """)
-        await self.db.execute(stmt, {
-            "uid": user_id, 
-            "cid": conversation_id, 
-            "model": model_name, 
-            "tin": tokens_in, 
-            "tout": tokens_out, 
-            "cost": cost, 
-            "lat": latency_ms
-        })
+        res = await self.db.execute(stmt_check, {"cid": conversation_id, "model": model_name})
+        row_id = res.scalar()
+
+        if row_id:
+            # 2. Actualizar acumulando valores
+            stmt_update = text("""
+                UPDATE ia_audit_logs 
+                SET tokens_input = tokens_input + :tin,
+                    tokens_output = tokens_output + :tout,
+                    cost = cost + :cost,
+                    latency_ms = (latency_ms + :lat) / 2
+                WHERE id = :rid
+            """)
+            await self.db.execute(stmt_update, {
+                "rid": row_id, 
+                "tin": tokens_in, 
+                "tout": tokens_out, 
+                "cost": cost, 
+                "lat": latency_ms
+            })
+        else:
+            # 3. Crear nueva entrada
+            stmt_insert = text("""
+                INSERT INTO ia_audit_logs (user_id, conversation_id, model, tokens_input, tokens_output, cost, latency_ms, status)
+                VALUES (:uid, :cid, :model, :tin, :tout, :cost, :lat, 'success')
+            """)
+            await self.db.execute(stmt_insert, {
+                "uid": user_id, 
+                "cid": conversation_id, 
+                "model": model_name, 
+                "tin": tokens_in, 
+                "tout": tokens_out, 
+                "cost": cost, 
+                "lat": latency_ms
+            })
+        
         await self.db.commit()

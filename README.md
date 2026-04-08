@@ -28,6 +28,7 @@ pip install -r requirements.txt
 
 # 5. Arranque Simultáneo: Compilación en Caliente y Activación de Sockets
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --reload
+uvicorn app.main:app --reload   
 ```
 Al finalizar la ejecución, los metadatos y el Swagger automatizado (OpenAPI) quedarán mapeados en `http://localhost:8000/docs`, listos para auditar las colecciones de endpoints POST, GET, PUT y DELETE en tiempo real.
 

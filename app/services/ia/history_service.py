@@ -30,6 +30,17 @@ class HistoryService:
         result = await self.db.execute(stmt, {"cid": conversation_id})
         return [MessageRead(**row) for row in result.mappings().all()]
 
+    async def get_trimmed_history(self, conversation_id: Optional[UUID], user_id: UUID, max_messages: int = 8) -> List[MessageRead]:
+        """Obtiene el historial limitado para optimizar tokens."""
+        messages = await self.get_messages(conversation_id, user_id)
+        if len(messages) <= max_messages:
+            return messages
+        
+        # Simular un resumen para historial antiguo (por ahora se trunca simplemente, 
+        # o se podría agregar un mensaje del sistema resumiendo el principio)
+        recent = messages[-max_messages:]
+        return recent
+
     async def save_message(self, conversation_id: Optional[UUID], role: str, content: Optional[str] = None, metadata: dict = None, tool_call_id: str = None):
         """Guarda un mensaje en la tabla ia_messages."""
         if not conversation_id:

@@ -92,6 +92,33 @@ async def get_ia_audit_logs(
         "total": total
     }
 
+@router.get("/audit-logs/{log_id}/details")
+async def get_audit_log_details(
+    log_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Obtiene los mensajes detallados de la conversación vinculada a un log de auditoría."""
+    
+    # 1. Obtener el conversation_id del log
+    log_stmt = text("SELECT conversation_id FROM ia_audit_logs WHERE id = :lid")
+    log_res = await db.execute(log_stmt, {"lid": str(log_id)})
+    log = log_res.mappings().first()
+    
+    if not log or not log["conversation_id"]:
+        raise HTTPException(status_code=404, detail="Log o conversación no encontrados")
+    
+    # 2. Obtener los mensajes de ia_messages
+    msg_stmt = text("""
+        SELECT role, content, metadata, created_at 
+        FROM ia_messages 
+        WHERE conversation_id = :cid 
+        ORDER BY created_at ASC
+    """)
+    messages_res = await db.execute(msg_stmt, {"cid": log["conversation_id"]})
+    messages = messages_res.mappings().all()
+    
+    return [dict(m) for m in messages]
+
 @router.get("/models", response_model=List[IAModelConfig])
 async def list_all_models(db: AsyncSession = Depends(get_db)):
     """Lista todos los modelos configurados (incluyendo inactivos)."""
@@ -159,3 +186,17 @@ async def delete_model_config(
         raise HTTPException(status_code=404, detail="Modelo no encontrado")
     
     return {"status": "deleted"}
+
+@router.delete("/audit-logs/clear")
+async def clear_all_ia_data(db: AsyncSession = Depends(get_db)):
+    """Elimina todos los registros de auditoría, mensajes y conversaciones de IA."""
+    try:
+        # El orden es importante por las claves foráneas
+        await db.execute(text("DELETE FROM ia_audit_logs"))
+        await db.execute(text("DELETE FROM ia_messages"))
+        await db.execute(text("DELETE FROM ia_conversations"))
+        await db.commit()
+        return {"status": "success", "message": "Historial de IA limpiado correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al limpiar historial: {str(e)}")

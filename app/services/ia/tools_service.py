@@ -83,7 +83,7 @@ class ToolsService:
             logger.error(f"Error en analizar_zona_extent: {e}")
             return {"success": False, "error": str(e)}
 
-    async def consultar_estadisticas_capa(self, layer_name: str, field: str = "estrato") -> Dict[str, Any]:
+    async def consultar_estadisticas_capa(self, layer_name: str, field: str = "estrato", chart_type: str = "bar", include_chart: bool = True) -> Dict[str, Any]:
         """Obtiene la distribución de datos (como estratos, categorías) de una capa específica."""
         try:
             # Buscar el ID de la capa por nombre
@@ -111,20 +111,28 @@ class ToolsService:
             data = [{"name": str(row[0] or "N/A"), "value": row[1]} for row in rows]
             total = sum(d["value"] for d in data)
 
-            return {
+            res = {
                 "success": True,
                 "layer": layer_name,
                 "field": field,
                 "total": total,
-                "analytics_data": {
-                    "type": "bar",
-                    "title": f"Distribución de {field.capitalize()} - {layer_name}",
+                "data": data, # Mandar siempre los datos crudos para que la IA haga su tabla
+                "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field}."
+            }
+
+            if include_chart:
+                res["analytics_data"] = {
+                    "type": chart_type,
+                    "title": f"Distribución de {field.capitalize()}",
+                    "layer_name": layer_name,
+                    "subtitle": f"{total} registros analizados",
+                    "insight": f"El valor principal es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
                     "data": data,
                     "keys": ["value"],
                     "label": "Registros"
-                },
-                "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field}."
-            }
+                }
+            
+            return res
         except Exception as e:
             logger.error(f"Error en consultar_estadisticas_capa: {e}")
             return {"success": False, "error": str(e)}
@@ -146,6 +154,52 @@ class ToolsService:
             "zoom_level": zoom_level,
             "map_action": "fly_to"
         }
+
+    async def buscar_y_mostrar_entidad(
+        self,
+        layer_name: str,
+        search_field: str,
+        search_value: str,
+        zoom_to: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Busca una entidad específica en una capa y la muestra aislada en el mapa.
+        """
+        try:
+            stmt = text("""
+                SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
+                FROM layer_features lf
+                JOIN layers l ON l.id = lf.layer_id
+                WHERE l.name ILIKE :layer AND lf.properties->>:field ILIKE :value
+                LIMIT 1
+            """)
+            result = await self.db.execute(stmt, {"layer": f"%{layer_name}%", "field": search_field, "value": f"%{search_value}%"})
+            entity = result.mappings().one_or_none()
+            
+            if not entity:
+                return {"found": False, "message": f"No encontré '{search_value}' en el campo {search_field} de la capa {layer_name}"}
+
+            centroid_stmt = text("""
+                SELECT ST_X(ST_Centroid(geom)), ST_Y(ST_Centroid(geom))
+                FROM layer_features WHERE id = :id
+            """)
+            centroid_result = await self.db.execute(centroid_stmt, {"id": entity["id"]})
+            centroid = centroid_result.fetchone()
+            lng, lat = centroid if centroid else (0, 0)
+
+            return {
+                "found": True,
+                "entity": entity["properties"],
+                "map_actions": [
+                    {"type": "toggle_layer", "layer_name": layer_name, "visible": True},
+                    {"type": "highlight_feature", "layer_name": layer_name, "feature_id": entity["id"]},
+                    {"type": "fly_to", "lat": lat, "lng": lng, "zoom": 15},
+                    {"type": "filter_layer", "layer_name": layer_name, "filter": f"{search_field}='{search_value}'"}
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Error en buscar_y_mostrar_entidad: {e}")
+            return {"found": False, "error": str(e)}
 
     async def consultar_datos_tabla(self, layer_name: str, limit: int = 10) -> Dict[str, Any]:
         """Obtiene un listado de registros (filas) de una capa para mostrar en una tabla."""
@@ -241,7 +295,9 @@ class ToolsService:
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "field": {"type": "string", "description": "Campo a analizar (ej: 'estrato', 'estado', 'tipo').", "default": "estrato"}
+                            "field": {"type": "string", "description": "Campo por el cual agrupar (ej: 'estrato', 'tipo', 'estado')."},
+                            "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "summary"], "description": "Tipo de gráfico."},
+                            "include_chart": {"type": "boolean", "description": "Si es True, genera un componente gráfico. Úsalo solo si el usuario pide 'graficar' o si la respuesta requiere visualización masiva.", "default": True}
                         },
                         "required": ["layer_name"]
                     }
@@ -259,6 +315,23 @@ class ToolsService:
                             "visible": {"type": "boolean", "description": "True para activar, False para desactivar."}
                         },
                         "required": ["layer_name"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "buscar_y_mostrar_entidad",
+                    "description": "Busca una entidad específica (por código, id, o nombre exacto) y la muestra en el mapa.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "layer_name": {"type": "string", "description": "Nombre de la capa."},
+                            "search_field": {"type": "string", "description": "Campo a buscar (ej: 'codigo', 'nombre')."},
+                            "search_value": {"type": "string", "description": "Valor a buscar."},
+                            "zoom_to": {"type": "boolean", "description": "Si se debe hacer zoom a la entidad.", "default": True}
+                        },
+                        "required": ["layer_name", "search_field", "search_value"]
                     }
                 }
             }
