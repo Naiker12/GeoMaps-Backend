@@ -212,9 +212,9 @@ class ToolsService:
             if not layer_id:
                 return {"success": False, "error": f"Capa '{layer_name}' no encontrada."}
 
-            # Consultar registros
+            # Consultar registros con su centroide para mostrar marcadores
             stmt_data = text("""
-                SELECT properties 
+                SELECT properties, ST_AsGeoJSON(ST_Centroid(geom)) as centroid 
                 FROM layer_features 
                 WHERE layer_id = :lid 
                 LIMIT :limit
@@ -222,15 +222,41 @@ class ToolsService:
             result = await self.db.execute(stmt_data, {"lid": layer_id, "limit": limit})
             rows = result.fetchall()
             
-            table_data = [row[0] for row in rows]
+            table_data = []
+            markers = []
+            
+            for row in rows:
+                props = row[0]
+                table_data.append(props)
+                
+                # Intentar crear marcador si hay centroide
+                if row[1]:
+                    try:
+                        geom = json.loads(row[1])
+                        coords = geom.get("coordinates", [0, 0])
+                        markers.append({
+                            "lat": coords[1],
+                            "lng": coords[0],
+                            "label": str(props.get("nombre") or props.get("id") or "Registro"),
+                            "popup": f"Capa: {layer_name}"
+                        })
+                    except:
+                        pass
 
-            return {
+            res = {
                 "success": True,
                 "layer": layer_name,
                 "data": table_data,
                 "count": len(table_data),
-                "mensaje": f"Se obtuvieron {len(table_data)} registros de la capa {layer_name} para la tabla."
+                "mensaje": f"Se obtuvieron {len(table_data)} registros de la capa {layer_name}."
             }
+            
+            if markers:
+                res["map_action"] = "show_markers"
+                res["markers"] = markers
+                res["zoom_to"] = True
+
+            return res
         except Exception as e:
             logger.error(f"Error en consultar_datos_tabla: {e}")
             return {"success": False, "error": str(e)}

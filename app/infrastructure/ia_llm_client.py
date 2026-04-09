@@ -68,12 +68,36 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
                 
                 if response.status_code != 200:
-                    error_body = response.text
-                    return {
-                        "status": "error",
-                        "error_message": f"OpenRouter API Error {response.status_code}: {error_body}",
-                        "latency_ms": int((time.time() - start_time) * 1000)
-                    }
+                    try:
+                        error_json = response.json()
+                        error_detail = error_json.get("error", {})
+                        raw_msg = error_detail.get("message", "")
+                        
+                        # Extraer mensaje legible si es rate limit de OpenRouter
+                        if response.status_code == 429:
+                            if "rate-limited" in str(error_detail).lower():
+                                clean_msg = "Límite de uso excedido para este modelo gratuito. Por favor, selecciona un modelo de pago o intenta más tarde."
+                            else:
+                                clean_msg = "Demasiadas solicitudes. Por favor, espera un momento."
+                            
+                            return {
+                                "status": "error",
+                                "error_message": clean_msg,
+                                "raw_error": error_json,
+                                "latency_ms": int((time.time() - start_time) * 1000)
+                            }
+                        
+                        return {
+                            "status": "error",
+                            "error_message": f"Error {response.status_code}: {raw_msg}",
+                            "latency_ms": int((time.time() - start_time) * 1000)
+                        }
+                    except Exception:
+                        return {
+                            "status": "error",
+                            "error_message": f"OpenRouter API Error {response.status_code}: {response.text[:200]}",
+                            "latency_ms": int((time.time() - start_time) * 1000)
+                        }
 
                 data = response.json()
                 choice = data["choices"][0]
