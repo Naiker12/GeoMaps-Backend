@@ -54,9 +54,15 @@ async def list_active_models(db: AsyncSession = Depends(get_db)):
 
 @router.get("/suggestions", response_model=List[IASuggestion])
 async def list_suggestions(db: AsyncSession = Depends(get_db)):
-    """Retorna sugerencias de preguntas iniciales."""
+    """Retorna sugerencias aleatorias de preguntas iniciales."""
     from sqlalchemy import text
-    stmt = text("SELECT id, text, category, icon, is_active FROM ia_suggestions WHERE is_active = true ORDER BY created_at ASC")
+    stmt = text("""
+        SELECT id, text, category, icon, is_active 
+        FROM ia_suggestions 
+        WHERE is_active = true 
+        ORDER BY RANDOM() 
+        LIMIT 4
+    """)
     result = await db.execute(stmt)
     return [IASuggestion(**row) for row in result.mappings().all()]
 

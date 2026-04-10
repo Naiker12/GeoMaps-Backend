@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # Patrón para detectar coordenadas: "10.42, -75.51" o "10.42 -75.51"
 COORD_REGEX = re.compile(r"^(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$")
 
+ROUTE_ALIASES = {
+    "alimentadora": ["alimentadoras", "aliment", "ali"],
+    "troncal": ["troncales", "tronc", "trk"],
+    "complementaria": ["complementarias", "comp", "compl"],
+    "petroncal": ["petroncales", "petro"],
+}
 
 class SearchService:
     """Implementa búsquedas transversales (Geográficas y Alfanuméricas)."""
@@ -25,9 +31,19 @@ class SearchService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def normalize_route_query(self, query: str) -> str:
+        q = query.lower().strip()
+        for canonical, aliases in ROUTE_ALIASES.items():
+            for alias in aliases:
+                # Usar límites de palabra para evitar reemplazos parciales incorrectos
+                pattern = rf"\b{re.escape(alias)}\b"
+                if re.search(pattern, q):
+                    return re.sub(pattern, canonical, q)
+        return q
+
     async def search(self, query: str) -> dict[str, Any]:
         """Realiza una búsqueda global mediante el motor integrado."""
-        query = query.strip()
+        query = self.normalize_route_query(query)
         if not query:
             return {"type": "FeatureCollection", "features": []}
 

@@ -123,6 +123,16 @@ class AgentService:
                 raise ValueError("No hay modelos de IA activos disponibles en el sistema.")
 
         conv_id = request.conversation_id
+        
+        # Verificar si la conversación existe si se proporcionó un ID
+        if conv_id:
+            check_exists = await self.db.execute(
+                text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
+                {"cid": conv_id, "uid": user.id}
+            )
+            if not check_exists.fetchone():
+                conv_id = None # Forzar creación si no existe
+
         if not conv_id:
             conv_id = await self.history_service.create_conversation(
                 user_id=user.id, 
@@ -154,10 +164,8 @@ class AgentService:
                 analytics_data=None
             )
 
-        # 2.5 Obtener capas disponibles para informar al modelo
         available_layers = await self._get_available_layers()
 
-        # 3. Construir Prompts
         system_prompt = self.prompt_builder.build_system_prompt(
             bbox=request.context_mapa.get("extent") if request.context_mapa else None,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
@@ -178,10 +186,8 @@ class AgentService:
         # Agregar el mensaje actual del usuario
         messages.append({"role": "user", "content": request.message})
         
-        # 4. Guardar Mensaje del Usuario
         await self.history_service.save_message(conv_id, "user", request.message)
 
-        # 5. Ejecutar Ciclo LLM con Function Calling
         api_key = settings.OPENROUTER_API_KEY
         client = LLMProviderFactory.create(model_config.provider.lower(), api_key, model_config.model_id)
         tools = await self.tools_service.get_tools_metadata() if model_config.has_function_calling else []
@@ -209,8 +215,8 @@ class AgentService:
             
             if response.get("status") == "error":
                 msg = response.get("error_message", "Unknown Error")
-                if "429" in msg:
-                    raise LLMRateLimitException(f"OpenRouter Rate Limit: {msg}")
+                if "429" in msg or "Demasiadas" in msg or "Límite" in msg:
+                    raise LLMRateLimitException(msg)
                 raise LLMException(msg)
 
             total_tokens_in += response.get("tokens_input", 0)
@@ -284,8 +290,8 @@ class AgentService:
                 )
                 if response.get("status") == "error":
                     msg = response.get("error_message", "Unknown Error")
-                    if "429" in msg:
-                        raise LLMRateLimitException(f"OpenRouter Rate Limit (loop): {msg}")
+                    if "429" in msg or "Demasiadas" in msg or "Límite" in msg:
+                        raise LLMRateLimitException(msg)
                     raise LLMException(msg)
 
                 total_tokens_in += response.get("tokens_input", 0)
@@ -294,7 +300,6 @@ class AgentService:
 
             final_response_content = msg.get("content") or ""
             
-            # 6. Guardar Respuesta Final
             await self.history_service.save_message(
                 conv_id, "assistant", final_response_content,
                 metadata={
@@ -345,6 +350,8 @@ class AgentService:
                 return await self.tools_service.zoom_to_location(**args)
             elif name == "buscar_y_mostrar_entidad":
                 return await self.tools_service.buscar_y_mostrar_entidad(**args)
+            elif name == "mostrar_ruta_animada":
+                return await self.tools_service.mostrar_ruta_animada(**args)
             else:
                 return f"Error: La herramienta {name} no existe."
         except Exception as e:

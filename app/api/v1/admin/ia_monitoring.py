@@ -69,19 +69,29 @@ async def get_ia_audit_logs(
     offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
-    """Lista detallada de logs de auditoría de IA con soporte para paginación."""
+    """Lista logs de auditoría agrupados por usuario con totales de tokens."""
     
-    # Obtener el conteo total de registros
-    count_stmt = text("SELECT COUNT(*) FROM ia_audit_logs")
+    count_stmt = text("SELECT COUNT(DISTINCT user_id) FROM ia_audit_logs")
     total_result = await db.execute(count_stmt)
     total = total_result.scalar() or 0
 
-    # Obtener el listado paginado
     stmt = text("""
-        SELECT a.*, u.full_name as user_name
+        SELECT 
+            a.user_id,
+            u.full_name as user_name,
+            COUNT(*) as total_requests,
+            SUM(a.tokens_input) as total_tokens_in,
+            SUM(a.tokens_output) as total_tokens_out,
+            SUM(a.cost) as total_cost,
+            AVG(a.latency_ms) as avg_latency,
+            MAX(a.created_at) as last_activity,
+            COUNT(CASE WHEN a.status = 'success' THEN 1 END) as success_count,
+            COUNT(CASE WHEN a.status != 'success' THEN 1 END) as error_count,
+            MODE() WITHIN GROUP (ORDER BY a.model) as most_used_model
         FROM ia_audit_logs a
         LEFT JOIN users u ON a.user_id = u.id
-        ORDER BY a.created_at DESC
+        GROUP BY a.user_id, u.full_name
+        ORDER BY MAX(a.created_at) DESC
         LIMIT :limit OFFSET :offset
     """)
     result = await db.execute(stmt, {"limit": limit, "offset": offset})
@@ -90,6 +100,60 @@ async def get_ia_audit_logs(
     return {
         "items": [dict(log) for log in logs],
         "total": total
+    }
+
+
+@router.get("/audit-logs/user/{user_id}")
+async def get_user_audit_detail(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Obtiene el detalle de consumo de IA de un usuario específico."""
+    
+    # Consumo diario de tokens (para gráfico)
+    daily_stmt = text("""
+        SELECT 
+            DATE_TRUNC('day', created_at) as date,
+            SUM(tokens_input) as tokens_in,
+            SUM(tokens_output) as tokens_out,
+            SUM(cost) as cost,
+            COUNT(*) as requests
+        FROM ia_audit_logs
+        WHERE user_id = :uid
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT 14
+    """)
+    daily = (await db.execute(daily_stmt, {"uid": str(user_id)})).mappings().all()
+    
+    # Logs individuales recientes
+    logs_stmt = text("""
+        SELECT id, model, tokens_input, tokens_output, cost, status, latency_ms, created_at, conversation_id
+        FROM ia_audit_logs 
+        WHERE user_id = :uid
+        ORDER BY created_at DESC
+        LIMIT 20
+    """)
+    logs = (await db.execute(logs_stmt, {"uid": str(user_id)})).mappings().all()
+    
+    # Desglose por modelo
+    models_stmt = text("""
+        SELECT 
+            model,
+            COUNT(*) as requests,
+            SUM(tokens_input + tokens_output) as total_tokens,
+            SUM(cost) as total_cost
+        FROM ia_audit_logs
+        WHERE user_id = :uid
+        GROUP BY model
+        ORDER BY total_tokens DESC
+    """)
+    models = (await db.execute(models_stmt, {"uid": str(user_id)})).mappings().all()
+    
+    return {
+        "daily": [dict(d) for d in reversed(list(daily))],
+        "logs": [dict(l) for l in logs],
+        "models": [dict(m) for m in models]
     }
 
 @router.get("/audit-logs/{log_id}/details")

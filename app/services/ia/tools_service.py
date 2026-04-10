@@ -37,12 +37,22 @@ class ToolsService:
 
             return {
                 "success": True,
-                "data": features,
+                "data": [f.get("properties", {}) for f in features],
                 "count": len(features),
-                "map_action": "show_markers" if markers else None,
-                "markers": markers,
-                "zoom_to": True if markers else False,
-                "message": f"Se encontraron {len(features)} resultados."
+                "map_actions": [
+                    {
+                        "map_action": "show_markers",
+                        "markers": markers,
+                        "zoom_to": True
+                    }
+                ],
+                "analytics_data": {
+                    "type": "table",
+                    "title": f"Resultados de Búsqueda: {query}",
+                    "data": [f.get("properties", {}) for f in features],
+                    "pdf_export": True
+                },
+                "mensaje": f"Se encontraron {len(features)} resultados para la búsqueda '{query}'."
             }
         except Exception as e:
             logger.error(f"Error en consultar_predios: {e}")
@@ -120,17 +130,17 @@ class ToolsService:
                 "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field}."
             }
 
-            if include_chart:
-                res["analytics_data"] = {
-                    "type": chart_type,
-                    "title": f"Distribución de {field.capitalize()}",
-                    "layer_name": layer_name,
-                    "subtitle": f"{total} registros analizados",
-                    "insight": f"El valor principal es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
-                    "data": data,
-                    "keys": ["value"],
-                    "label": "Registros"
-                }
+            res["analytics_data"] = {
+                "type": chart_type,
+                "title": f"Distribución de {field.capitalize()}",
+                "layer_name": layer_name,
+                "label": field.capitalize(),
+                "subtitle": f"{total} registros analizados",
+                "insight": f"El valor principal es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
+                "data": data,
+                "keys": ["value"],
+                "pdf_export": True # Habilitar siempre exportación si hay datos analíticos
+            }
             
             return res
         except Exception as e:
@@ -243,23 +253,88 @@ class ToolsService:
                     except:
                         pass
 
-            res = {
+            return {
                 "success": True,
                 "layer": layer_name,
                 "data": table_data,
                 "count": len(table_data),
+                "analytics_data": {
+                    "type": "table",
+                    "title": f"Detalle de registros: {layer_name}",
+                    "layer_name": layer_name,
+                    "data": table_data,
+                    "pdf_export": True
+                },
+                "map_actions": [
+                    {
+                        "map_action": "show_markers",
+                        "markers": markers
+                    }
+                ],
                 "mensaje": f"Se obtuvieron {len(table_data)} registros de la capa {layer_name}."
             }
-            
-            if markers:
-                res["map_action"] = "show_markers"
-                res["markers"] = markers
-                res["zoom_to"] = True
-
-            return res
         except Exception as e:
             logger.error(f"Error en consultar_datos_tabla: {e}")
             return {"success": False, "error": str(e)}
+
+    async def mostrar_ruta_animada(self, ruta_id: str) -> Dict[str, Any]:
+        """Muestra una ruta específica en el mapa con animación progresiva."""
+        try:
+            stmt = text("""
+                SELECT 
+                    lf.properties->>'cod_ruta' as codigo, 
+                    lf.properties->>'name' as nombre, 
+                    lf.properties->>'tipo' as tipo, 
+                    ST_AsGeoJSON(lf.geom) as geojson,
+                    ST_XMin(ST_Envelope(lf.geom)) as bbox_xmin,
+                    ST_YMin(ST_Envelope(lf.geom)) as bbox_ymin,
+                    ST_XMax(ST_Envelope(lf.geom)) as bbox_xmax,
+                    ST_YMax(ST_Envelope(lf.geom)) as bbox_ymax
+                FROM public.layer_features lf
+                JOIN public.layers l ON l.id = lf.layer_id
+                WHERE l.name ILIKE 'RUTAS' AND (lf.properties->>'cod_ruta' ILIKE :ruta_id OR lf.properties->>'name' ILIKE :ruta_id)
+                LIMIT 1
+            """)
+            result = await self.db.execute(stmt, {"ruta_id": f"%{ruta_id}%"})
+            row = result.mappings().one_or_none()
+            
+            if not row:
+                return {"found": False, "message": f"No se encontró la ruta '{ruta_id}' en la capa RUTAS."}
+            
+            geojson = json.loads(row["geojson"])
+            bbox = [row["bbox_xmin"], row["bbox_ymin"], row["bbox_xmax"], row["bbox_ymax"]]
+            
+            return {
+                "found": True,
+                "ruta": {
+                    "codigo": row["codigo"] or "S/C",
+                    "nombre": row["nombre"],
+                    "tipo": row["tipo"]
+                },
+                "map_actions": [
+                    {
+                        "map_action": "toggle_layer",
+                        "layer_name": "RUTAS",
+                        "visible": True
+                    },
+                    {
+                        "map_action": "ANIMATE_ROUTE",
+                        "geojson": geojson,
+                        "bbox": bbox,
+                        "color": "#4ade80",
+                        "duration_ms": 3500
+                    },
+                    {
+                        "map_action": "filter_layer",
+                        "layer_name": "RUTAS",
+                        "filter": f"cod_ruta='{row['codigo']}'"
+                    }
+                ],
+                "mensaje": f"He localizado la ruta **{row['nombre']}**. Iniciando animación técnica y filtrando mapa para visualización exclusiva."
+            }
+        except Exception as e:
+            logger.error(f"Error en mostrar_ruta_animada: {e}")
+            return {"found": False, "error": str(e)}
 
     async def get_tools_metadata(self) -> List[Dict[str, Any]]:
         """Devuelve la definición de las herramientas para el LLM."""
@@ -358,6 +433,23 @@ class ToolsService:
                             "zoom_to": {"type": "boolean", "description": "Si se debe hacer zoom a la entidad.", "default": True}
                         },
                         "required": ["layer_name", "search_field", "search_value"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mostrar_ruta_animada",
+                    "description": "Muestra una ruta específica en el mapa con animación. Úsala cuando el usuario pida ver, mostrar o trazar una ruta por código (ej: X101) o nombre.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "ruta_id": {
+                                "type": "string",
+                                "description": "Código o ID de la ruta, ej: X101, R-45"
+                            }
+                        },
+                        "required": ["ruta_id"]
                     }
                 }
             }
