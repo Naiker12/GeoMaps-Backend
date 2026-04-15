@@ -93,11 +93,36 @@ class ToolsService:
             logger.error(f"Error en analizar_zona_extent: {e}")
             return {"success": False, "error": str(e)}
 
-    async def consultar_estadisticas_capa(self, layer_name: str, field: str = "estrato", chart_type: str = "bar", include_chart: bool = True) -> Dict[str, Any]:
+    async def listar_campos_capa(self, layer_name: str) -> Dict[str, Any]:
+        """Obtiene la lista de campos (propiedades) disponibles en una capa para análisis."""
+        try:
+            stmt = text("SELECT properties FROM layer_features JOIN layers ON layers.id = layer_features.layer_id WHERE unaccent(layers.name) ILIKE unaccent(:name) LIMIT 5")
+            result = await self.db.execute(stmt, {"name": f"%{layer_name}%"})
+            rows = result.fetchall()
+            
+            if not rows:
+                return {"success": False, "error": f"No se encontraron datos para la capa '{layer_name}'."}
+            
+            # Unir todas las llaves encontradas en las primeras 5 filas
+            all_keys = set()
+            for row in rows:
+                if row[0]:
+                    all_keys.update(row[0].keys())
+            
+            return {
+                "success": True,
+                "layer": layer_name,
+                "fields": list(all_keys),
+                "mensaje": f"La capa '{layer_name}' tiene los siguientes campos disponibles para filtrar o graficar: {', '.join(all_keys)}."
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def consultar_estadisticas_capa(self, layer_name: str, field: str = "estrato", chart_type: str = "bar", include_chart: bool = True, limit: int = 20) -> Dict[str, Any]:
         """Obtiene la distribución de datos (como estratos, categorías) de una capa específica."""
         try:
-            # Buscar el ID de la capa por nombre
-            stmt_layer = text("SELECT id FROM public.layers WHERE name ILIKE :name LIMIT 1")
+            # Buscar el ID de la capa por nombre omitiendo acentos
+            stmt_layer = text("SELECT id FROM public.layers WHERE unaccent(name) ILIKE unaccent(:name) LIMIT 1")
             res_layer = await self.db.execute(stmt_layer, {"name": f"%{layer_name}%"})
             layer_id = res_layer.scalar()
             
@@ -113,9 +138,9 @@ class ToolsService:
                 WHERE layer_id = :lid
                 GROUP BY 1
                 ORDER BY 2 DESC
-                LIMIT 8
+                LIMIT :limit
             """)
-            result = await self.db.execute(stmt_stats, {"field": field, "lid": layer_id})
+            result = await self.db.execute(stmt_stats, {"field": field, "lid": layer_id, "limit": limit})
             rows = result.fetchall()
             
             data = [{"name": str(row[0] or "N/A"), "value": row[1]} for row in rows]
@@ -127,19 +152,19 @@ class ToolsService:
                 "field": field,
                 "total": total,
                 "data": data, # Mandar siempre los datos crudos para que la IA haga su tabla
-                "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field}."
+                "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field} (Top {len(data)} resultados)."
             }
 
             res["analytics_data"] = {
                 "type": chart_type,
-                "title": f"Distribución de {field.capitalize()}",
+                "title": f"Distribución de {field.replace('_', ' ').capitalize()}",
                 "layer_name": layer_name,
-                "label": field.capitalize(),
-                "subtitle": f"{total} registros analizados",
-                "insight": f"El valor principal es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
+                "label": field.replace('_', ' ').capitalize(),
+                "subtitle": f"{total} registros analizados en {len(data)} categorías",
+                "insight": f"El valor frecuente es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
                 "data": data,
                 "keys": ["value"],
-                "pdf_export": True # Habilitar siempre exportación si hay datos analíticos
+                "pdf_export": True 
             }
             
             return res
@@ -180,7 +205,7 @@ class ToolsService:
                 SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
                 FROM layer_features lf
                 JOIN layers l ON l.id = lf.layer_id
-                WHERE l.name ILIKE :layer AND lf.properties->>:field ILIKE :value
+                WHERE unaccent(l.name) ILIKE unaccent(:layer) AND unaccent(lf.properties->>:field) ILIKE unaccent(:value)
                 LIMIT 1
             """)
             result = await self.db.execute(stmt, {"layer": f"%{layer_name}%", "field": search_field, "value": f"%{search_value}%"})
@@ -215,7 +240,7 @@ class ToolsService:
         """Obtiene un listado de registros (filas) de una capa para mostrar en una tabla."""
         try:
             # Buscar el ID de la capa por nombre
-            stmt_layer = text("SELECT id FROM public.layers WHERE name ILIKE :name LIMIT 1")
+            stmt_layer = text("SELECT id FROM public.layers WHERE unaccent(name) ILIKE unaccent(:name) LIMIT 1")
             res_layer = await self.db.execute(stmt_layer, {"name": f"%{layer_name}%"})
             layer_id = res_layer.scalar()
             
@@ -396,9 +421,10 @@ class ToolsService:
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "field": {"type": "string", "description": "Campo por el cual agrupar (ej: 'estrato', 'tipo', 'estado')."},
+                            "field": {"type": "string", "description": "Campo por el cual agrupar (ej: 'sig_territ' para barrio, 'estrato', 'tipo')."},
                             "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "summary"], "description": "Tipo de gráfico."},
-                            "include_chart": {"type": "boolean", "description": "Si es True, genera un componente gráfico. Úsalo solo si el usuario pide 'graficar' o si la respuesta requiere visualización masiva.", "default": True}
+                            "include_chart": {"type": "boolean", "description": "Si es True, genera un componente gráfico.", "default": True},
+                            "limit": {"type": "integer", "description": "Número de categorías a retornar (ej: 50 para ver todos los barrios).", "default": 20}
                         },
                         "required": ["layer_name"]
                     }
@@ -450,6 +476,20 @@ class ToolsService:
                             }
                         },
                         "required": ["ruta_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "listar_campos_capa",
+                    "description": "Lista los campos (atributos) disponibles en una capa. Úsala si no sabes por qué campo filtrar o graficar (ej: '¿qué datos tiene la capa barrios?').",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "layer_name": {"type": "string", "description": "Nombre de la capa."}
+                        },
+                        "required": ["layer_name"]
                     }
                 }
             }

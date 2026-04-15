@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, UploadFile, File, status, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession # Added this import
 from app.api import deps
-from app.schemas.project import Project, ProjectCreate, ProjectUpdate, ProjectImage, ProjectModel3D
+from app.schemas.project import Project, ProjectCreate, ProjectUpdate, ProjectImage, ProjectModel3D, ProjectLot, ProjectLotUpdate
 from app.services.project_service import ProjectService
 from app.db.models.user import User
 
@@ -95,3 +95,32 @@ async def upload_shapefile(
     current_user: User = Depends(deps.get_current_admin_user)
 ):
     return await service.upload_shapefile(id, files)
+
+@router.get("/{id}/lots/geojson")
+async def get_project_lots_geojson(
+    id: uuid.UUID,
+    service: ProjectService = Depends(deps.get_project_service),
+    current_user: Optional[User] = Depends(deps.get_current_user_optional)
+):
+    """
+    Retorna los lotes de un proyecto como FeatureCollection GeoJSON.
+    Endpoint público — útil para pintar capas vectoriales en el mapa frontend.
+    """
+    project = await service.get_project_by_id(id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    return await service.get_lots_geojson(id)
+
+@router.put("/{id}/lots/{lot_id}", response_model=ProjectLot)
+async def update_project_lot(
+    id: uuid.UUID,
+    lot_id: uuid.UUID,
+    lot_in: ProjectLotUpdate,
+    service: ProjectService = Depends(deps.get_project_service),
+    current_user: User = Depends(deps.get_current_admin_user)
+):
+    """Actualiza la información (precio, estado, etc.) de un lote específico."""
+    lot = await service.update_lot(lot_id, lot_in)
+    if not lot:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+    return lot

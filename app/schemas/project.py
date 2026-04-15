@@ -132,6 +132,14 @@ class ProjectLotBase(BaseModel):
 class ProjectLotCreate(ProjectLotBase):
     pass
 
+class ProjectLotUpdate(BaseModel):
+    identifier: Optional[str] = None
+    nz_zone: Optional[str] = None
+    area_m2: Optional[float] = None
+    status: Optional[str] = None
+    price: Optional[float] = None
+    custom_data: Optional[dict] = None
+
 class ProjectLot(ProjectLotBase):
     id: uuid.UUID
     project_id: uuid.UUID

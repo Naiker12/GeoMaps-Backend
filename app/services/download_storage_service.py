@@ -1,8 +1,11 @@
+import logging
 import json
 import zipfile
 import tempfile
 import os
 import mimetypes
+
+logger = logging.getLogger(__name__)
 from uuid import UUID
 from fastapi import UploadFile
 from app.services.storage_service import storage_service
@@ -117,4 +120,4 @@ class DownloadStorageService:
                 paths = [f"{prefix}{f['name']}" for f in res]
                 storage_service.supabase.storage.from_(BUCKET).remove(paths)
         except Exception as e:
-            print(f"[DownloadStorage] Error al eliminar: {e}")
+            logger.error(f"[DownloadStorage] Error al eliminar: {e}")

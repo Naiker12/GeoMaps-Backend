@@ -101,7 +101,7 @@ async def upload_avatar(
     current_user: User = Depends(get_current_user),
 ):
     """Sube una imagen y la establece como avatar del usuario."""
-    url = await storage_service.upload_file(file, "images")
+    url = await storage_service.upload_file(file, "profiles")
     update = UserUpdate(avatar_url=url)
     user = await auth_service.update_user_profile(db, current_user, update)
     await db.commit()

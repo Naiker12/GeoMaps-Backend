@@ -114,6 +114,70 @@ class ProjectRepository(BaseRepository[Project]):
             data["geometry"] = ST_GeomFromText(f"POINT({lng} {lat})", 4326)
         return data
 
+    async def get_lots_as_geojson(self, project_id: uuid.UUID) -> dict:
+        """Construye una FeatureCollection GeoJSON con los lotes de un proyecto.
+
+        Usa ST_AsGeoJSON() de PostGIS para conversión eficiente en la DB.
+        Incluye metadata visual (color, opacidad) y financiera (moneda).
+        """
+        import json
+        from sqlalchemy import func
+
+        # Obtener proyecto con relaciones necesarias
+        project = await self.get_project_by_id(project_id)
+        if not project:
+            return {"type": "FeatureCollection", "features": [], "metadata": {}}
+
+        currency = project.financials.currency.value if project.financials else "COP"
+        map_color = project.map_settings.map_color if project.map_settings else "#3ECF8E"
+        map_opacity = project.map_settings.map_opacity if project.map_settings else 100
+
+        # Query eficiente: solo campos necesarios + geometría PostGIS → GeoJSON
+        stmt = select(
+            ProjectLot.id,
+            ProjectLot.identifier,
+            ProjectLot.nz_zone,
+            ProjectLot.area_m2,
+            ProjectLot.status,
+            ProjectLot.price,
+            ProjectLot.custom_data,
+            func.ST_AsGeoJSON(ProjectLot.geometry).label("geometry")
+        ).where(ProjectLot.project_id == project_id)
+
+        result = await self.db.execute(stmt)
+        rows = result.mappings().all()
+
+        features = []
+        for row in rows:
+            geom = json.loads(row["geometry"]) if row["geometry"] else None
+            features.append({
+                "type": "Feature",
+                "id": str(row["id"]),
+                "geometry": geom,
+                "properties": {
+                    "lot_id": str(row["id"]),
+                    "name": row["identifier"],
+                    "nz_zone": row["nz_zone"],
+                    "area": float(row["area_m2"]) if row["area_m2"] else None,
+                    "status": row["status"] or "Disponible",
+                    "price": float(row["price"]) if row["price"] else None,
+                    "currency": currency,
+                    "project_id": str(project_id),
+                    "custom_data": row["custom_data"]
+                }
+            })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {
+                "project_name": project.name,
+                "map_color": map_color,
+                "map_opacity": map_opacity,
+                "total_lots": len(features)
+            }
+        }
+
     async def manage_media(self, project_id: uuid.UUID, url: str, media_type: str = "image") -> Any:
         """Gestor de archivos multimedia (imágenes o modelos 3D)."""
         model = ProjectImage if media_type == "image" else ProjectModel3D
@@ -121,3 +185,20 @@ class ProjectRepository(BaseRepository[Project]):
         self.db.add(instance)
         await self.db.commit()
         return instance
+
+    async def update_lot(self, lot_id: uuid.UUID, lot_data: dict) -> ProjectLot | None:
+        """Actualiza un lote específico."""
+        stmt = select(ProjectLot).where(ProjectLot.id == lot_id)
+        result = await self.db.execute(stmt)
+        lot = result.scalar_one_or_none()
+        
+        if not lot:
+            return None
+            
+        for k, v in lot_data.items():
+            if v is not None:
+                setattr(lot, k, v)
+                
+        await self.db.commit()
+        await self.db.refresh(lot)
+        return lot

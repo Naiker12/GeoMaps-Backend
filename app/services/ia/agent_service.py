@@ -140,11 +140,27 @@ class AgentService:
                 model_id=model_config.model_id
             )
 
-        history = await self.history_service.get_trimmed_history(conv_id, user.id, max_messages=8)
-        if history is None:
-            # Si no hay historial o la conversa no es del usuario, crear una
-            # (En el flujo real frontend suele crearla primero, pero manejamos fallback)
-            pass
+        history = await self.history_service.get_trimmed_history(conv_id, user.id, max_messages=10)
+        
+        # Resumen de memoria de largo plazo
+        conversation_summary = await self.history_service.get_conversation_summary(conv_id)
+        if not conversation_summary and history and len(history) >= 15:
+            try:
+                summary_prompt = "Resume brevemente los datos y capas analizados en esta conversación para mantener contexto. Sé muy conciso."
+                messages_for_summary = [{"role": msg.role, "content": msg.content} for msg in history[-15:] if msg.content and msg.role != "tool"]
+                messages_for_summary.append({"role": "user", "content": summary_prompt})
+                
+                api_key_for_summary = settings.OPENROUTER_API_KEY
+                summary_client = LLMProviderFactory.create(model_config.provider.lower(), api_key_for_summary, model_config.model_id)
+                summary_response = await summary_client.chat_complete(
+                    messages=[Message(**m) for m in messages_for_summary]
+                )
+                if summary_response.get("status") == "success":
+                    new_summary = summary_response["message"]["content"]
+                    await self.history_service.save_conversation_summary(conv_id, new_summary)
+                    conversation_summary = new_summary
+            except Exception as e:
+                logger.warning(f"No se pudo generar el resumen automátio: {e}")
 
         if needs_chart_clarification(request.message):
             final_response = "Para preparar tu gráfico, por favor indícame:\n1. ¿Tipo de gráfico? (Barras, Pastel, Línea)\n2. ¿Nivel de detalle? (Resumen, Completo, Por barrio)\n3. ¿Quieres compararlo con otra variable o período?"
@@ -170,12 +186,13 @@ class AgentService:
             bbox=request.context_mapa.get("extent") if request.context_mapa else None,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
-            user_name=user.full_name or user.email
+            user_name=user.full_name or user.email,
+            conversation_summary=conversation_summary
         )
 
         messages = [{"role": "system", "content": system_prompt}]
         # Limitar historial a últimos 10 mensajes para ahorrar tokens
-        for msg in (history[-10:] if history else []):
+        for msg in (history if history else []):
             messages.append({
                 "role": msg.role,
                 "content": msg.content,
@@ -352,6 +369,8 @@ class AgentService:
                 return await self.tools_service.buscar_y_mostrar_entidad(**args)
             elif name == "mostrar_ruta_animada":
                 return await self.tools_service.mostrar_ruta_animada(**args)
+            elif name == "listar_campos_capa":
+                return await self.tools_service.listar_campos_capa(**args)
             else:
                 return f"Error: La herramienta {name} no existe."
         except Exception as e:
