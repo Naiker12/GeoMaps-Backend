@@ -59,6 +59,13 @@ class LayerRepository(BaseRepository[Layer]):
             await self.db.execute(insert(LayerFeature).values(mappings[i:i + chunk_size]))
         
         await self.db.commit()
+    
+    async def delete_features_by_layer_id(self, layer_id: uuid.UUID) -> bool:
+        """Elimina todos los elementos geográficos asociados a una capa."""
+        stmt = delete(LayerFeature).where(LayerFeature.layer_id == layer_id)
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        return result.rowcount > 0
 
     async def get_features_as_geojson(self, layer_id: uuid.UUID) -> dict:
         """Representa las geometrías de la capa como un FeatureCollection GeoJSON."""
@@ -130,3 +137,39 @@ class LayerRepository(BaseRepository[Layer]):
             import logging
             logging.getLogger(__name__).error(f"Error en get_feature_by_id: {e}")
             return None
+
+    async def get_field_values(self, layer_id: uuid.UUID, field_name: str) -> dict:
+        """Obtiene valores únicos de un campo JSONB para simbología categorizada."""
+        stmt = text(
+            "SELECT DISTINCT properties->>:field AS val "
+            "FROM layer_features WHERE layer_id = :lid AND properties->>:field IS NOT NULL "
+            "ORDER BY val LIMIT 100"
+        )
+        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id)})
+        values = [row[0] for row in result.fetchall()]
+        return {"field": field_name, "values": values, "total_unique": len(values)}
+
+    async def get_field_stats(self, layer_id: uuid.UUID, field_name: str) -> dict:
+        """Obtiene estadísticas numéricas de un campo JSONB para simbología graduada."""
+        stmt = text(
+            "SELECT "
+            "  MIN((properties->>:field)::numeric) AS min_val, "
+            "  MAX((properties->>:field)::numeric) AS max_val, "
+            "  AVG((properties->>:field)::numeric) AS avg_val, "
+            "  COUNT(*) AS cnt "
+            "FROM layer_features "
+            "WHERE layer_id = :lid "
+            "  AND properties->>:field IS NOT NULL "
+            "  AND (properties->>:field) ~ '^-?[0-9]+(\\.[0-9]+)?$'"
+        )
+        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id)})
+        row = result.fetchone()
+        if not row or row[3] == 0:
+            return {"field": field_name, "min": None, "max": None, "avg": None, "count": 0}
+        return {
+            "field": field_name,
+            "min": float(row[0]),
+            "max": float(row[1]),
+            "avg": round(float(row[2]), 2),
+            "count": int(row[3])
+        }

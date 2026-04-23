@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Maneja eventos de encendido y apagado de la aplicación."""
-    logger.info("Arrancando GeoMaps Engine.")
+    logger.info("Arrancando GeoMaps.")
     # El motor YOLO ha sido deshabilitado temporalmente para optimizar recursos
     yield
     # Limpieza
     ml_models.clear()
-    logger.info("GeoMaps Engine apagado.")
+    logger.info("GeoMaps apagado.")
 
 
 app = FastAPI(

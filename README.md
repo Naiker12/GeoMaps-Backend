@@ -19,7 +19,6 @@ cd GeoMaps-Backend
 # 2. Virtualización de Entorno (Requerido Python 3.10 o superior)
 # Este paso crea la burbuja de dependencias exclusivas para el SDK espacial y ML.
 python -m venv venv
-
 # 3. Activación Rigurosa del Entorno (PowerShell o CMD)
 .\venv\Scripts\activate
 

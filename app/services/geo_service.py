@@ -34,13 +34,20 @@ class GeoService:
         if epsg_source != epsg_target:
             gdf = gdf.to_crs(epsg=epsg_target)
 
+        import numpy as np
         processed_features = []
         for idx, (_, row) in enumerate(gdf.iterrows()):
             if row.geometry and not row.geometry.is_empty:
+                # Convertir a dict y limpiar valores NaN/NaT para compatibilidad JSONB (Postgres)
                 props = row.drop("geometry").to_dict()
+                clean_props = {
+                    k: (None if isinstance(v, (float, np.float64, np.float32)) and np.isnan(v) else v) 
+                    for k, v in props.items()
+                }
+                
                 processed_features.append({
-                    "display_name": detect_display_name(props, idx),
-                    "properties": props,
+                    "display_name": detect_display_name(clean_props, idx),
+                    "properties": clean_props,
                     "geom_wkt": row.geometry.wkt
                 })
 

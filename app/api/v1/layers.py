@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
-from typing import List, Optional
+import json
+from typing import List, Optional, Union
 
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.db.models.user import User
 from app.schemas.layer import (
     LayerResponse, LayerCreate, FeatureCollectionSchema, LayerPublicResponse
 )
-from typing import List, Optional, Union
 from app.services.layer_service import LayerService
 
 router = APIRouter()
@@ -80,6 +80,8 @@ async def update_layer(
     visibility: Optional[str] = Form(None),
     map_color: Optional[str] = Form(None),
     map_opacity: Optional[float] = Form(None),
+    symbology: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -99,9 +101,15 @@ async def update_layer(
         update_data["map_color"] = map_color
     if map_opacity is not None:
         update_data["map_opacity"] = map_opacity
+    
+    if symbology is not None:
+        try:
+            update_data["symbology"] = json.loads(symbology)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Simbología inválida")
 
     service = LayerService(db)
-    layer = await service.update_layer(layer_id, update_data)
+    layer = await service.update_layer(layer_id, update_data, file=file)
 
     if not layer:
         raise HTTPException(status_code=404, detail="Capa no encontrada")
@@ -130,6 +138,28 @@ async def get_feature_detail(
 ):
     service = LayerService(db)
     return await service.get_feature_by_id(feature_id)
+
+
+@router.get("/{layer_id}/field-values", response_model=dict)
+async def get_field_values(
+    layer_id: uuid.UUID,
+    field: str = Query(..., description="Nombre del campo a consultar"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Valores únicos de un campo para simbología categorizada."""
+    service = LayerService(db)
+    return await service.get_field_values(layer_id, field)
+
+
+@router.get("/{layer_id}/field-stats", response_model=dict)
+async def get_field_stats(
+    layer_id: uuid.UUID,
+    field: str = Query(..., description="Nombre del campo numérico"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Estadísticas numéricas de un campo para simbología graduada."""
+    service = LayerService(db)
+    return await service.get_field_stats(layer_id, field)
 
 
 @router.get("/{layer_id}/features", response_model=FeatureCollectionSchema)

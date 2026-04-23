@@ -26,6 +26,7 @@ class LayerUpdate(BaseModel):
     visibility: Optional[str] = None
     map_color: Optional[str] = None
     map_opacity: Optional[float] = None
+    symbology: Optional[Dict[str, Any]] = None
 
 
 # Schema público: sin file_url ni created_by
@@ -35,6 +36,7 @@ class LayerPublicResponse(LayerBase):
     source_type: Optional[str]
     stats_config: Dict[str, Any] = {}
     feature_card_config: Dict[str, Any] = {}
+    symbology: Dict[str, Any] = {}
     created_at: datetime
     updated_at: datetime
 

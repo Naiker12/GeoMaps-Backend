@@ -119,8 +119,23 @@ class LayerService:
         if file:
             from app.services.storage_service import storage_service
 
+            # 1. Parsear el nuevo archivo
+            geojson_data = await self._parse_file(file)
+
+            # 2. Obtener metadatos y features procesados
+            geom_type = await self.geo_service.get_geometry_type(geojson_data)
+            processed_features = await self.geo_service.process_geojson(geojson_data)
+
+            # 3. Limpiar features antiguos
+            await self.repository.delete_features_by_layer_id(layer_id)
+
+            # 4. Insertar nuevos features
+            await self.repository.insert_features_bulk(layer_id, processed_features)
+
+            # 5. Subir archivo al storage
             file.file.seek(0)
             update_data["file_url"] = await storage_service.upload_file(file, "layers")
+            update_data["geometry_type"] = geom_type
 
         return await self.repository.update(layer, update_data)
 
@@ -149,3 +164,11 @@ class LayerService:
                 )
 
         return await self.repository.delete(layer_id)
+
+    async def get_field_values(self, layer_id: uuid.UUID, field: str) -> dict:
+        """Valores únicos de un campo para simbología categorizada."""
+        return await self.repository.get_field_values(layer_id, field)
+
+    async def get_field_stats(self, layer_id: uuid.UUID, field: str) -> dict:
+        """Estadísticas numéricas de un campo para simbología graduada."""
+        return await self.repository.get_field_stats(layer_id, field)

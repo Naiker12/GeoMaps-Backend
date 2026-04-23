@@ -36,6 +36,7 @@ class Layer(Base):
     file_url: Mapped[Optional[str]] = mapped_column(Text)
     stats_config: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)          # Configuración de gráficas y KPIs
     feature_card_config: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)   # Configuración de ficha del punto
+    symbology: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)             # Configuración de simbología visual (single, categorized, graduated)
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
