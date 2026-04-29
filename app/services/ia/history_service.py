@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import List, Optional, Any, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.ia import Conversation, MessageRead
+from app.schemas.ia import Conversation, MessageRead, IASuggestion
 from app.core.config import settings
 
 CACHE_TTL = 3600   # 1 hora
@@ -60,14 +60,23 @@ class HistoryService:
             ORDER BY created_at ASC
         """)
         result = await self.db.execute(stmt, {"cid": conversation_id})
-        messages = [MessageRead(**row) for row in result.mappings().all()]
+        messages = []
+        for row in result.mappings().all():
+            try:
+                d = dict(row)
+                if isinstance(d.get("metadata"), str):
+                    d["metadata"] = json.loads(d["metadata"])
+                messages.append(MessageRead.model_validate(d))
+            except Exception as e:
+                print(f"Error parsing message: {e}")
+
 
         # Guardar en cache
         try:
             r = await self._get_redis()
             await r.set(
                 self._cache_key_history(conversation_id),
-                json.dumps([m.dict() for m in messages], default=str),
+                json.dumps([m.model_dump() for m in messages], default=str),
                 ex=CACHE_TTL
             )
         except Exception:
@@ -80,12 +89,26 @@ class HistoryService:
         self,
         conversation_id: Optional[UUID],
         user_id: UUID,
-        max_messages: int = 10
+        max_messages: int = 20
     ) -> List[MessageRead]:
         messages = await self.get_messages(conversation_id, user_id)
         if len(messages) <= max_messages:
             return messages
-        return messages[-max_messages:]
+            
+        # Tomamos el recorte inicial
+        trimmed = messages[-max_messages:]
+        
+        # Ajuste 1: Asegurar que el primer mensaje del historial sea de un usuario
+        # para que la IA tenga contexto claro de quin empez la interaccin actual.
+        while trimmed and trimmed[0].role != "user":
+            trimmed.pop(0)
+            
+        # Ajuste 2: Evitar que el historial empiece con una respuesta de herramienta 
+        # sin su correspondiente llamada (que estara en los mensajes eliminados).
+        while trimmed and trimmed[0].role == "tool":
+            trimmed.pop(0)
+            
+        return trimmed
 
     # Resumen de memoria de largo plazo
     async def get_conversation_summary(self, conversation_id: UUID) -> Optional[str]:
@@ -145,7 +168,7 @@ class HistoryService:
             pass
 
     # ── Resto de métodos sin cambios ───────────
-    async def list_conversations(self, user_id: UUID) -> List[Conversation]:
+    async def get_user_conversations(self, user_id: UUID) -> List[Conversation]:
         stmt = text("""
             SELECT id, title, model_id, created_at, updated_at
             FROM ia_conversations
@@ -153,7 +176,14 @@ class HistoryService:
             ORDER BY updated_at DESC
         """)
         result = await self.db.execute(stmt, {"uid": str(user_id)})
-        return [Conversation(**row) for row in result.mappings().all()]
+        conversations = []
+        for row in result.mappings().all():
+            try:
+                conversations.append(Conversation.model_validate(dict(row)))
+            except Exception as e:
+                print(f"Error parsing conversation: {e}")
+        return conversations
+
 
     async def create_conversation(self, user_id: UUID, title: str, model_id: str) -> UUID:
         stmt = text("""
@@ -176,3 +206,21 @@ class HistoryService:
         except Exception:
             pass
         return result.rowcount > 0
+
+    # ── Sugerencias de Prompts ─────────────────
+    async def get_suggestions(self) -> List[IASuggestion]:
+        """Obtiene sugerencias de prompts configuradas en la base de datos."""
+        stmt = text("""
+            SELECT id, text, category, icon, is_active
+            FROM ia_suggestions
+            WHERE is_active = true
+        """)
+        result = await self.db.execute(stmt)
+        suggestions = []
+        for row in result.mappings().all():
+            try:
+                suggestions.append(IASuggestion.model_validate(dict(row)))
+            except Exception as e:
+                print(f"Error parsing suggestion: {e}")
+        return suggestions
+

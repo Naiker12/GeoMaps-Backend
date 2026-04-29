@@ -59,35 +59,47 @@ class ToolsService:
             return {"success": False, "error": str(e)}
 
     async def analizar_zona_extent(self, bbox: List[float]) -> Dict[str, Any]:
-        """Realiza un resumen estadístico de lo que hay en un área específica (bbox)."""
+        """Realiza un resumen estadístico detallado por capas de lo que hay en un área específica (bbox)."""
         try:
             xmin, ymin, xmax, ymax = bbox
+            # Consulta para obtener el desglose por capas en el área
             stmt = text("""
                 SELECT 
-                    count(*) as total_features,
-                    count(DISTINCT layer_id) as total_layers
-                FROM layer_features
-                WHERE geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                    l.name as layer_name,
+                    count(*) as count
+                FROM layer_features lf
+                JOIN layers l ON l.id = lf.layer_id
+                WHERE lf.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                GROUP BY l.name
+                ORDER BY count DESC
             """)
             result = await self.db.execute(stmt, {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax})
-            row = result.mappings().one()
+            rows = result.fetchall()
+            
+            breakdown = [{"name": row[0], "value": row[1]} for row in rows]
+            total_features = sum(d["value"] for d in breakdown)
+            total_layers = len(breakdown)
             
             return {
                 "success": True,
                 "bbox": bbox,
                 "data": {
-                    "total_elementos": row["total_features"],
-                    "capas_afectadas": row["total_layers"],
+                    "total_elementos": total_features,
+                    "capas_afectadas": total_layers,
+                    "desglose": breakdown
                 },
                 "analytics_data": {
-                    "type": "summary",
-                    "title": "Resumen de Zona",
-                    "data": [
-                        {"name": "Elementos", "value": row["total_features"]},
-                        {"name": "Capas", "value": row["total_layers"]}
-                    ]
+                    "type": "table",
+                    "title": "Análisis de Cobertura en Zona",
+                    "subtitle": f"Se identificaron {total_features} elementos en {total_layers} categorías",
+                    "data": breakdown,
+                    "columns": [
+                        {"key": "name", "label": "Capa"},
+                        {"key": "value", "label": "Cantidad"}
+                    ],
+                    "pdf_export": True
                 },
-                "mensaje": f"He analizado el área seleccionada y encontré {row['total_features']} elementos distribuidos en {row['total_layers']} capas."
+                "mensaje": f"He analizado el área seleccionada y encontré {total_features} elementos distribuidos en {total_layers} capas."
             }
         except Exception as e:
             logger.error(f"Error en analizar_zona_extent: {e}")
@@ -368,12 +380,12 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "consultar_datos_tabla",
-                    "description": "Obtiene un listado detallado de registros de una capa para mostrar en una tabla Markdown. Úsala cuando el usuario pida 'ver lista', 'tabla de', 'dame 10 registros', etc.",
+                    "description": "Obtiene un listado detallado de registros de una capa geográfica para mostrar en una tabla. Úsala cuando el usuario quiera inspeccionar datos específicos o ver una lista de elementos.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "limit": {"type": "integer", "description": "Número de registros a mostrar.", "default": 10}
+                            "layer_name": {"type": "string", "description": "Nombre exacto de la capa (ej: 'Parques', 'Barrios')."},
+                            "limit": {"type": "integer", "description": "Cantidad de registros a retornar.", "default": 10}
                         },
                         "required": ["layer_name"]
                     }
@@ -383,12 +395,12 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "consultar_predios",
-                    "description": "Busca predios, lotes o información geográfica relevante.",
+                    "description": "Busca información detallada de predios o lotes por propietario, dirección o matrícula.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string", "description": "Nombre o criterio de búsqueda."},
-                            "limit": {"type": "integer", "description": "Máximo de resultados.", "default": 20}
+                            "query": {"type": "string", "description": "Texto de búsqueda (nombre, dirección, etc)."},
+                            "limit": {"type": "integer", "description": "Máximo de resultados.", "default": 10}
                         },
                         "required": ["query"]
                     }
@@ -398,14 +410,14 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "analizar_zona_extent",
-                    "description": "Analiza estadísticamente el área visible actual del mapa.",
+                    "description": "Calcula estadísticas rápidas (conteo de elementos y capas) del área que el usuario está viendo en el mapa.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "bbox": {
                                 "type": "array",
                                 "items": {"type": "number"},
-                                "description": "[xmin, ymin, xmax, ymax]"
+                                "description": "[min_lng, min_lat, max_lng, max_lat]"
                             }
                         },
                         "required": ["bbox"]
@@ -416,17 +428,16 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "consultar_estadisticas_capa",
-                    "description": "Obtiene estadísticas y distribuciones (estratos, tipos, categorías) de una capa para generar gráficas.",
+                    "description": "Genera datos para gráficos (barras, pastel, etc) agrupando por un campo específico de una capa.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "field": {"type": "string", "description": "Campo por el cual agrupar (ej: 'sig_territ' para barrio, 'estrato', 'tipo')."},
-                            "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "summary"], "description": "Tipo de gráfico."},
-                            "include_chart": {"type": "boolean", "description": "Si es True, genera un componente gráfico.", "default": True},
-                            "limit": {"type": "integer", "description": "Número de categorías a retornar (ej: 50 para ver todos los barrios).", "default": 20}
+                            "field": {"type": "string", "description": "Atributo para agrupar (ej: 'estrato', 'tipo_uso')."},
+                            "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "summary"], "description": "Visualización deseada."},
+                            "limit": {"type": "integer", "description": "Número de categorías top a mostrar.", "default": 15}
                         },
-                        "required": ["layer_name"]
+                        "required": ["layer_name", "field"]
                     }
                 }
             },
@@ -434,14 +445,14 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "activate_layer",
-                    "description": "Activa o desactiva una capa específica del mapa.",
+                    "description": "Controla la visibilidad de las capas en el mapa. Úsala para prender o apagar capas según la solicitud del usuario.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "layer_name": {"type": "string", "description": "Nombre de la capa a modificar."},
-                            "visible": {"type": "boolean", "description": "True para activar, False para desactivar."}
+                            "layer_name": {"type": "string", "description": "Nombre de la capa."},
+                            "visible": {"type": "boolean", "description": "True para mostrar, False para ocultar."}
                         },
-                        "required": ["layer_name"]
+                        "required": ["layer_name", "visible"]
                     }
                 }
             },
@@ -449,14 +460,13 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "buscar_y_mostrar_entidad",
-                    "description": "Busca una entidad específica (por código, id, o nombre exacto) y la muestra en el mapa.",
+                    "description": "Localiza, resalta y hace zoom a un elemento específico de una capa usando un criterio de búsqueda.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "search_field": {"type": "string", "description": "Campo a buscar (ej: 'codigo', 'nombre')."},
-                            "search_value": {"type": "string", "description": "Valor a buscar."},
-                            "zoom_to": {"type": "boolean", "description": "Si se debe hacer zoom a la entidad.", "default": True}
+                            "search_field": {"type": "string", "description": "Campo de búsqueda (ej: 'id', 'nombre')."},
+                            "search_value": {"type": "string", "description": "Valor exacto o parcial a buscar."}
                         },
                         "required": ["layer_name", "search_field", "search_value"]
                     }
@@ -466,14 +476,11 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "mostrar_ruta_animada",
-                    "description": "Muestra una ruta específica en el mapa con animación. Úsala cuando el usuario pida ver, mostrar o trazar una ruta por código (ej: X101) o nombre.",
+                    "description": "Dibuja una ruta con una animación técnica en el mapa. Úsala para recorridos, rutas de transporte o trayectos.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "ruta_id": {
-                                "type": "string",
-                                "description": "Código o ID de la ruta, ej: X101, R-45"
-                            }
+                            "ruta_id": {"type": "string", "description": "Código identificador de la ruta."}
                         },
                         "required": ["ruta_id"]
                     }
@@ -483,7 +490,7 @@ class ToolsService:
                 "type": "function",
                 "function": {
                     "name": "listar_campos_capa",
-                    "description": "Lista los campos (atributos) disponibles en una capa. Úsala si no sabes por qué campo filtrar o graficar (ej: '¿qué datos tiene la capa barrios?').",
+                    "description": "Explora qué atributos tiene una capa. Úsala cuando no estés seguro de qué campos usar para filtrar o graficar.",
                     "parameters": {
                         "type": "object",
                         "properties": {

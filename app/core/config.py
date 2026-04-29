@@ -53,8 +53,8 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_JWT_SECRET: str
     
-    # AI Models (Unified via OpenRouter)
-    OPENROUTER_API_KEY: Optional[str] = None
+    # AI Models (Native Gemini)
+    GOOGLE_API: Optional[str] = None
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

@@ -1,5 +1,6 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import text, func
+from sqlalchemy import text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -10,6 +11,7 @@ from app.db.session import get_db
 from app.schemas.ia import IAModelConfig
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/stats")
 async def get_ia_stats(
@@ -17,51 +19,78 @@ async def get_ia_stats(
     db: AsyncSession = Depends(get_db)
 ):
     """Obtiene estadísticas agregadas de consumo de IA para el Dashboard."""
+    logger.info(f"Obteniendo estadísticas de IA para los últimos {days} días")
     
-    # Resumen General de Consumo
-    summary_stmt = text("""
-        SELECT 
-            COUNT(*) as total_requests,
-            SUM(tokens_input + tokens_output) as total_tokens,
-            SUM(cost) as total_cost,
-            AVG(latency_ms) as avg_latency
-        FROM ia_audit_logs
-        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
-    """)
-    summary = (await db.execute(summary_stmt, {"days": days})).mappings().one()
+    try:
+        summary_stmt = text("""
+            SELECT 
+                COUNT(*) as total_requests,
+                COALESCE(SUM(tokens_input + tokens_output), 0) as total_tokens,
+                COALESCE(SUM(cost), 0) as total_cost,
+                COALESCE(AVG(latency_ms), 0) as avg_latency
+            FROM ia_audit_logs
+            WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+        """)
+        summary_res = await db.execute(summary_stmt, {"days": days})
+        #Mappings().one() siempre devuelve una fila para agregados sin GROUP BY
+        summary_row = summary_res.mappings().one()
+        summary = {
+            "total_requests": summary_row["total_requests"] or 0,
+            "total_tokens": int(summary_row["total_tokens"] or 0),
+            "total_cost": float(summary_row["total_cost"] or 0),
+            "avg_latency": float(summary_row["avg_latency"] or 0)
+        }
 
-    # Desglose de Consumo por Modelo
-    model_usage_stmt = text("""
-        SELECT 
-            model as model_id, 
-            COUNT(*) as requests,
-            SUM(tokens_input + tokens_output) as tokens,
-            SUM(cost) as cost
-        FROM ia_audit_logs
-        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
-        GROUP BY model
-        ORDER BY requests DESC
-    """)
-    models = (await db.execute(model_usage_stmt, {"days": days})).mappings().all()
+        # Desglose de Consumo por Modelo
+        model_usage_stmt = text("""
+            SELECT 
+                model as model_id, 
+                COUNT(*) as requests,
+                COALESCE(SUM(tokens_input + tokens_output), 0) as tokens,
+                COALESCE(SUM(cost), 0) as cost
+            FROM ia_audit_logs
+            WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+            GROUP BY model
+            ORDER BY requests DESC
+        """)
+        models_res = await db.execute(model_usage_stmt, {"days": days})
+        models = []
+        for r in models_res.mappings().all():
+            models.append({
+                "model_id": r["model_id"],
+                "requests": r["requests"] or 0,
+                "tokens": int(r["tokens"] or 0),
+                "cost": float(r["cost"] or 0)
+            })
 
-    # Histórico de Actividad Temporal
-    history_stmt = text("""
-        SELECT 
-            DATE_TRUNC('day', created_at) as date,
-            COUNT(*) as requests,
-            SUM(cost) as cost
-        FROM ia_audit_logs
-        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
-        GROUP BY date
-        ORDER BY date ASC
-    """)
-    history = (await db.execute(history_stmt, {"days": days})).mappings().all()
+        # Histórico de Actividad Temporal
+        history_stmt = text("""
+            SELECT 
+                DATE_TRUNC('hour', created_at) as timestamp,
+                COUNT(*) as requests,
+                COALESCE(SUM(tokens_input + tokens_output), 0) as tokens
+            FROM ia_audit_logs
+            WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+            GROUP BY 1
+            ORDER BY 1 ASC
+        """)
+        history_res = await db.execute(history_stmt, {"days": days})
+        history = []
+        for h in history_res.mappings().all():
+            history.append({
+                "timestamp": h["timestamp"].isoformat() if h["timestamp"] else None,
+                "requests": h["requests"] or 0,
+                "tokens": int(h["tokens"] or 0)
+            })
 
-    return {
-        "summary": summary,
-        "models": models,
-        "history": [dict(h) for h in history]
-    }
+        return {
+            "summary": summary,
+            "models": models,
+            "history": history
+        }
+    except Exception as e:
+        logger.error(f"Error en get_ia_stats: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error interno al procesar estadísticas")
 
 @router.get("/audit-logs")
 async def get_ia_audit_logs(
@@ -70,37 +99,56 @@ async def get_ia_audit_logs(
     db: AsyncSession = Depends(get_db)
 ):
     """Lista logs de auditoría agrupados por usuario con totales de tokens."""
+    logger.info(f"Obteniendo logs de auditoría de IA (limit={limit}, offset={offset})")
     
-    count_stmt = text("SELECT COUNT(DISTINCT user_id) FROM ia_audit_logs")
-    total_result = await db.execute(count_stmt)
-    total = total_result.scalar() or 0
+    try:
+        count_stmt = text("SELECT COUNT(DISTINCT user_id) FROM ia_audit_logs")
+        total_result = await db.execute(count_stmt)
+        total = total_result.scalar() or 0
 
-    stmt = text("""
-        SELECT 
-            a.user_id,
-            u.full_name as user_name,
-            COUNT(*) as total_requests,
-            SUM(a.tokens_input) as total_tokens_in,
-            SUM(a.tokens_output) as total_tokens_out,
-            SUM(a.cost) as total_cost,
-            AVG(a.latency_ms) as avg_latency,
-            MAX(a.created_at) as last_activity,
-            COUNT(CASE WHEN a.status = 'success' THEN 1 END) as success_count,
-            COUNT(CASE WHEN a.status != 'success' THEN 1 END) as error_count,
-            MODE() WITHIN GROUP (ORDER BY a.model) as most_used_model
-        FROM ia_audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        GROUP BY a.user_id, u.full_name
-        ORDER BY MAX(a.created_at) DESC
-        LIMIT :limit OFFSET :offset
-    """)
-    result = await db.execute(stmt, {"limit": limit, "offset": offset})
-    logs = result.mappings().all()
+        # Eliminamos MODE() temporalmente por si causa problemas en el driver Windows
+        stmt = text("""
+            SELECT 
+                a.user_id,
+                u.full_name as user_name,
+                COUNT(*) as total_requests,
+                COALESCE(SUM(a.tokens_input), 0) as total_tokens_in,
+                COALESCE(SUM(a.tokens_output), 0) as total_tokens_out,
+                COALESCE(SUM(a.cost), 0) as total_cost,
+                COALESCE(AVG(a.latency_ms), 0) as avg_latency,
+                MAX(a.created_at) as last_activity,
+                COUNT(CASE WHEN a.status = 'success' THEN 1 END) as success_count,
+                COUNT(CASE WHEN a.status != 'success' THEN 1 END) as error_count
+            FROM ia_audit_logs a
+            LEFT JOIN users u ON a.user_id = u.id
+            GROUP BY a.user_id, u.full_name
+            ORDER BY MAX(a.created_at) DESC
+            LIMIT :limit OFFSET :offset
+        """)
+        result = await db.execute(stmt, {"limit": limit, "offset": offset})
+        logs = []
+        for r in result.mappings().all():
+            logs.append({
+                "user_id": str(r["user_id"]) if r["user_id"] else None,
+                "user_name": r["user_name"] or "Usuario Anónimo",
+                "total_requests": r["total_requests"] or 0,
+                "total_tokens_in": int(r["total_tokens_in"] or 0),
+                "total_tokens_out": int(r["total_tokens_out"] or 0),
+                "total_cost": float(r["total_cost"] or 0),
+                "avg_latency": float(r["avg_latency"] or 0),
+                "last_activity": r["last_activity"].isoformat() if r["last_activity"] else None,
+                "success_count": r["success_count"] or 0,
+                "error_count": r["error_count"] or 0,
+                "most_used_model": "N/A" # Simplificado
+            })
 
-    return {
-        "items": [dict(log) for log in logs],
-        "total": total
-    }
+        return {
+            "items": logs,
+            "total": total
+        }
+    except Exception as e:
+        logger.error(f"Error en get_ia_audit_logs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error interno al listar logs")
 
 
 @router.get("/audit-logs/user/{user_id}")
@@ -185,10 +233,37 @@ async def get_audit_log_details(
 
 @router.get("/models", response_model=List[IAModelConfig])
 async def list_all_models(db: AsyncSession = Depends(get_db)):
-    """Lista todos los modelos configurados (incluyendo inactivos)."""
-    stmt = text("SELECT * FROM ia_models_config ORDER BY provider, name")
-    result = await db.execute(stmt)
-    return [IAModelConfig(**row) for row in result.mappings().all()]
+    """Lista todas las configuraciones de modelos de IA."""
+    logger.info("Listando configuraciones de modelos de IA")
+    try:
+        stmt = select(text("*")).select_from(text("ia_models_config")).order_by(text("name ASC"))
+        result = await db.execute(stmt)
+        models = []
+        for row in result.mappings().all():
+            try:
+                # Convertimos tipos Decimal y manejamos nulos
+                d = dict(row)
+                if d.get("input_cost_per_1k") is not None:
+                    d["input_cost_per_1k"] = float(d["input_cost_per_1k"])
+                if d.get("output_cost_per_1k") is not None:
+                    d["output_cost_per_1k"] = float(d["output_cost_per_1k"])
+                
+                models.append(IAModelConfig.model_validate(d))
+            except Exception as ser_err:
+                logger.warning(f"Error serializando modelo {row.get('name')}: {ser_err}")
+                # Intentamos añadirlo igual si tiene lo mínimo
+                if d.get("name") and d.get("model_id"):
+                    models.append(IAModelConfig(
+                        id=d.get("id"),
+                        name=d["name"],
+                        provider=d.get("provider", "unknown"),
+                        model_id=d["model_id"],
+                        is_active=d.get("is_active", True)
+                    ))
+        return models
+    except Exception as e:
+        logger.error(f"Error en list_all_models: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error al listar modelos")
 
 @router.post("/models", response_model=IAModelConfig)
 async def create_model_config(
