@@ -1,19 +1,6 @@
-import os
 from typing import List, Dict
 
 class PromptBuilder:
-    def __init__(self, skills_dir: str = "app/ia/skills"):
-        self.skills_dir = skills_dir
-
-    def _load_skills(self) -> str:
-        skills_content = ""
-        if os.path.exists(self.skills_dir):
-            for file in os.listdir(self.skills_dir):
-                if file.endswith(".md"):
-                    with open(os.path.join(self.skills_dir, file), "r", encoding="utf-8") as f:
-                        skills_content += f"\n---\n{f.read()}\n"
-        return skills_content
-
     def build_system_prompt(
         self,
         bbox: list = None,
@@ -22,8 +9,6 @@ class PromptBuilder:
         user_name: str = "Usuario",
         conversation_summary: str = None,   # NUEVO: resumen de memoria
     ) -> str:
-
-        skills = self._load_skills()
 
         layers_str = ""
         if available_layers:
@@ -154,6 +139,5 @@ INSTRUCCIONES DE ESTILO
   • Nunca: "Como IA...", "No tengo acceso a...", "Lo siento pero...", "Entiendo que...".
   • Siempre: Confirmación de acción + datos + interpretación + qué sigue.
 
-{skills}
 """
         return prompt

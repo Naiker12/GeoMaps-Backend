@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.infrastructure.ia_llm_client import LLMProviderFactory
 from app.services.ia.prompt_builder import PromptBuilder
 from app.services.ia.history_service import HistoryService
-from app.services.ia.tools_service import ToolsService
+from app.services.ia.tools import ToolsService
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig, StreamChunk
 from app.core.exceptions import LLMException, LLMRateLimitException
 
