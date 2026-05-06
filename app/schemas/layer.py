@@ -8,6 +8,7 @@ class LayerBase(BaseModel):
     name: str = Field(..., description="Nombre de la capa")
     description: Optional[str] = Field(None)
     category: Optional[str] = Field(None)
+    subcategory: Optional[str] = Field(None)
     source: Optional[str] = Field(None)
     visibility: str = Field(default="private")
     map_color: Optional[str] = Field("#3ECF8E")
@@ -22,6 +23,7 @@ class LayerUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
+    subcategory: Optional[str] = None
     source: Optional[str] = None
     visibility: Optional[str] = None
     map_color: Optional[str] = None

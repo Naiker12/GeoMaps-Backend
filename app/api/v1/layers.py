@@ -19,6 +19,7 @@ async def upload_layer(
     name: str = Form(...),
     description: str = Form(None),
     category: str = Form(None),
+    subcategory: str = Form(None),
     source: str = Form(None),
     visibility: str = Form("PRIVATE"),
     map_color: str = Form("#3ECF8E"),
@@ -31,6 +32,7 @@ async def upload_layer(
         name=name,
         description=description,
         category=category,
+        subcategory=subcategory,
         source=source,
         visibility=visibility,
         map_color=map_color,
@@ -49,6 +51,15 @@ async def upload_layer(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error procesando capa: {str(e)}")
+
+
+@router.get("/categories", response_model=List[str])
+async def get_categories(
+    db: AsyncSession = Depends(get_db),
+):
+    """Obtiene el listado de categorías únicas de las capas."""
+    service = LayerService(db)
+    return await service.get_categories()
 
 
 @router.get("/", response_model=List[Union[LayerResponse, LayerPublicResponse]])
@@ -76,6 +87,7 @@ async def update_layer(
     name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     category: Optional[str] = Form(None),
+    subcategory: Optional[str] = Form(None),
     source: Optional[str] = Form(None),
     visibility: Optional[str] = Form(None),
     map_color: Optional[str] = Form(None),
@@ -93,6 +105,8 @@ async def update_layer(
         update_data["description"] = description
     if category is not None:
         update_data["category"] = category
+    if subcategory is not None:
+        update_data["subcategory"] = subcategory
     if source is not None:
         update_data["source"] = source
     if visibility is not None:

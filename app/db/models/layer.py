@@ -23,6 +23,7 @@ class Layer(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     category: Mapped[Optional[str]] = mapped_column(String(100))
+    subcategory: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     source: Mapped[Optional[str]] = mapped_column(String(255))
     geometry_type: Mapped[Optional[str]] = mapped_column(String(50)) # POINT, LINESTRING, POLYGON, MULTI*
     source_type: Mapped[Optional[str]] = mapped_column(String(50)) # geojson, shapefile

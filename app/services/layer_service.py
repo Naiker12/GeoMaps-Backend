@@ -172,3 +172,7 @@ class LayerService:
     async def get_field_stats(self, layer_id: uuid.UUID, field: str) -> dict:
         """Estadísticas numéricas de un campo para simbología graduada."""
         return await self.repository.get_field_stats(layer_id, field)
+
+    async def get_categories(self) -> list[str]:
+        """Obtiene el listado de categorías únicas."""
+        return await self.repository.get_unique_categories()

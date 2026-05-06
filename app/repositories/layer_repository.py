@@ -39,6 +39,12 @@ class LayerRepository(BaseRepository[Layer]):
         })
         return await self.create(data)
 
+    async def get_unique_categories(self) -> list[str]:
+        """Obtiene el listado de categorías únicas registradas."""
+        stmt = select(Layer.category).distinct().where(Layer.category.is_not(None)).order_by(Layer.category)
+        result = await self.db.execute(stmt)
+        return [c for c in result.scalars().all()]
+
     async def insert_features_bulk(self, layer_id: uuid.UUID, features: list[dict]):
         """Inserta features cartográficas en lotes para mayor rendimiento."""
         if not features: return
