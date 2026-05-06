@@ -2,7 +2,7 @@ import json
 import redis.asyncio as aioredis
 from uuid import UUID
 from typing import List, Optional, Any, Dict
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.ia import Conversation, MessageRead, IASuggestion
 from app.core.config import settings
@@ -197,8 +197,22 @@ class HistoryService:
         return result.scalar()
 
     async def delete_conversation(self, conversation_id: UUID, user_id: UUID) -> bool:
-        stmt = text("DELETE FROM ia_conversations WHERE id = :cid AND user_id = :uid")
-        result = await self.db.execute(stmt, {"cid": conversation_id, "uid": user_id})
+        check = await self.db.execute(
+            text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
+            {"cid": conversation_id, "uid": user_id}
+        )
+        if not check.fetchone():
+            return False
+
+        await self.db.execute(
+            text("DELETE FROM ia_messages WHERE conversation_id = :cid"),
+            {"cid": conversation_id}
+        )
+        result = await self.db.execute(
+            text("DELETE FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
+            {"cid": conversation_id, "uid": user_id}
+        )
+        await self.db.commit()
         try:
             r = await self._get_redis()
             await r.delete(self._cache_key_history(conversation_id))
@@ -206,6 +220,45 @@ class HistoryService:
         except Exception:
             pass
         return result.rowcount > 0
+
+    async def delete_conversations(self, conversation_ids: List[UUID], user_id: UUID) -> int:
+        if not conversation_ids:
+            return 0
+
+        result = await self.db.execute(
+            text("""
+                SELECT id
+                FROM ia_conversations
+                WHERE user_id = :uid AND id IN :ids
+            """).bindparams(bindparam("ids", expanding=True)),
+            {"uid": user_id, "ids": conversation_ids}
+        )
+        owned_ids = [row[0] for row in result.fetchall()]
+        if not owned_ids:
+            return 0
+
+        await self.db.execute(
+            text("DELETE FROM ia_messages WHERE conversation_id IN :ids").bindparams(bindparam("ids", expanding=True)),
+            {"ids": owned_ids}
+        )
+        delete_result = await self.db.execute(
+            text("DELETE FROM ia_conversations WHERE user_id = :uid AND id IN :ids").bindparams(bindparam("ids", expanding=True)),
+            {"uid": user_id, "ids": owned_ids}
+        )
+        await self.db.commit()
+
+        try:
+            r = await self._get_redis()
+            keys = []
+            for conv_id in owned_ids:
+                keys.append(self._cache_key_history(conv_id))
+                keys.append(self._cache_key_summary(conv_id))
+            if keys:
+                await r.delete(*keys)
+        except Exception:
+            pass
+
+        return delete_result.rowcount or 0
 
     # ── Sugerencias de Prompts ─────────────────
     async def get_suggestions(self) -> List[IASuggestion]:
@@ -223,4 +276,3 @@ class HistoryService:
             except Exception as e:
                 print(f"Error parsing suggestion: {e}")
         return suggestions
-

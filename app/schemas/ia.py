@@ -16,6 +16,9 @@ class ChatRequest(BaseModel):
     context_mapa: Optional[Dict[str, Any]] = None
     historial: Optional[List[Message]] = []
 
+class DeleteConversationsRequest(BaseModel):
+    conversation_ids: List[UUID4] = Field(default_factory=list)
+
 class ToolCall(BaseModel):
     id: str
     name: str

@@ -269,7 +269,11 @@ class AgentService:
             )
             
             if response.get("status") == "error":
-                raise LLMException(response.get("error_message", "Unknown Error"))
+                raise LLMException(
+                    response.get("error_message", "Unknown Error"),
+                    status_code=response.get("status_code", 500),
+                    code=response.get("error_code", "LLM_ERROR")
+                )
 
             total_tokens_in += response.get("tokens_input", 0)
             total_tokens_out += response.get("tokens_output", 0)
@@ -315,7 +319,11 @@ class AgentService:
                     tools=tools if tools else None
                 )
                 if response.get("status") == "error":
-                    raise LLMException(response.get("error_message", "Unknown Error"))
+                    raise LLMException(
+                        response.get("error_message", "Unknown Error"),
+                        status_code=response.get("status_code", 500),
+                        code=response.get("error_code", "LLM_ERROR")
+                    )
 
                 total_tokens_in += response.get("tokens_input", 0)
                 total_tokens_out += response.get("tokens_output", 0)

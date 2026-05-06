@@ -68,7 +68,8 @@ async def get_ia_stats(
             SELECT 
                 DATE_TRUNC('hour', created_at) as timestamp,
                 COUNT(*) as requests,
-                COALESCE(SUM(tokens_input + tokens_output), 0) as tokens
+                COALESCE(SUM(tokens_input + tokens_output), 0) as tokens,
+                COALESCE(SUM(cost), 0) as cost
             FROM ia_audit_logs
             WHERE created_at >= NOW() - INTERVAL '1 day' * :days
             GROUP BY 1
@@ -80,7 +81,8 @@ async def get_ia_stats(
             history.append({
                 "timestamp": h["timestamp"].isoformat() if h["timestamp"] else None,
                 "requests": h["requests"] or 0,
-                "tokens": int(h["tokens"] or 0)
+                "tokens": int(h["tokens"] or 0),
+                "cost": float(h["cost"] or 0)
             })
 
         return {

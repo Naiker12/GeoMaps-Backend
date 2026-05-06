@@ -116,14 +116,39 @@ class GeminiProvider(LLMProvider):
 
             # Ejecución en un hilo para no bloquear el loop si el SDK no es full async
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, 
-                lambda: self.client.models.generate_content(
-                    model=self.model_id,
-                    contents=contents,
-                    config=config
-                )
-            )
+            response = None
+            last_error = None
+
+            for attempt in range(2):
+                try:
+                    # Ejecucion en un hilo para no bloquear el loop si el SDK no es full async.
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: self.client.models.generate_content(
+                            model=self.model_id,
+                            contents=contents,
+                            config=config
+                        )
+                    )
+                    break
+                except Exception as e:
+                    last_error = e
+                    error_text = str(e).lower()
+                    is_transient = (
+                        "503" in error_text
+                        or "unavailable" in error_text
+                        or "overloaded" in error_text
+                        or "busy" in error_text
+                        or "high demand" in error_text
+                        or "deadline" in error_text
+                    )
+                    if attempt == 0 and is_transient:
+                        await asyncio.sleep(1.5)
+                        continue
+                    raise
+
+            if response is None:
+                raise last_error or RuntimeError("Gemini no retorno respuesta")
             
             # Extraer contenido y tool calls
             content = ""
@@ -158,19 +183,26 @@ class GeminiProvider(LLMProvider):
         except Exception as e:
             error_str = str(e)
             logger.error(f"Gemini API Error (google-genai): {error_str}")
+            status_code = 503
+            error_code = "LLM_UNAVAILABLE"
             
             # Mensajes amigables según el tipo de error
             friendly_msg = "Lo siento, el servicio de IA no está disponible en este momento. Por favor, intenta de nuevo en unos minutos."
             if "404" in error_str or "not found" in error_str.lower():
                 friendly_msg = "El modelo de IA no está disponible o no se encuentra configurado correctamente."
             elif "429" in error_str or "quota" in error_str.lower():
+                status_code = 429
+                error_code = "LLM_RATE_LIMIT"
                 friendly_msg = "Has superado el límite de mensajes permitidos. Por favor, espera un momento antes de continuar."
             elif "503" in error_str or "overloaded" in error_str.lower() or "busy" in error_str.lower() or "deadline" in error_str.lower():
+                error_code = "LLM_TEMPORARILY_UNAVAILABLE"
                 friendly_msg = "El servicio de IA está recibiendo muchas peticiones en este momento y no podemos atenderte. Por favor, intenta de nuevo en unos segundos."
             
             return {
                 "status": "error",
                 "error_message": friendly_msg,
+                "status_code": status_code,
+                "error_code": error_code,
                 "technical_details": error_str
             }
 

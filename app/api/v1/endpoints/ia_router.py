@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.services.ia.agent_service import AgentService
 from app.services.ia.history_service import HistoryService
 from app.services.ia.usage_service import UsageService
-from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse
+from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest
 from app.api.deps import get_current_active_user
 from app.db.models.user import User
 
@@ -40,7 +40,7 @@ async def chat_with_ia(
     except LLMException as e:
         # Los errores de LLMException ya vienen con un mensaje amigable del proveedor
         logger.warning(f"Error controlado de IA: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
         logger.error(f"Error inesperado en chat_with_ia: {str(e)}", exc_info=True)
         # Para errores desconocidos, usamos un mensaje genérico seguro
@@ -101,6 +101,27 @@ async def get_conversation_messages(
     history_service = HistoryService(db)
     return await history_service.get_messages(conversation_id, current_user.id)
 
+@router.delete("/conversations")
+async def delete_conversations(
+    request: DeleteConversationsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Elimina varias conversaciones del usuario actual."""
+    if not request.conversation_ids:
+        raise HTTPException(status_code=400, detail="No hay conversaciones seleccionadas")
+
+    history_service = HistoryService(db)
+    deleted_count = await history_service.delete_conversations(
+        request.conversation_ids,
+        current_user.id
+    )
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "message": f"{deleted_count} conversaciones eliminadas"
+    }
+
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: UUID,
@@ -109,7 +130,9 @@ async def delete_conversation(
 ):
     """Elimina una conversación y sus mensajes."""
     history_service = HistoryService(db)
-    await history_service.delete_conversation(conversation_id, current_user.id)
+    deleted = await history_service.delete_conversation(conversation_id, current_user.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversacion no encontrada")
     return {"status": "success", "message": "Conversación eliminada"}
 
 @router.get("/suggestions", response_model=List[IASuggestion])

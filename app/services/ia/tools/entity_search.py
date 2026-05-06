@@ -6,25 +6,97 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+MAX_TABLE_ROWS = 50
+MAX_MAP_MARKERS = 25
+
+
+DISPLAY_NAME_KEYS = [
+    "display_name",
+    "nombre",
+    "name",
+    "nombre_est",
+    "puesto",
+    "descripcion",
+    "descripcio",
+    "description",
+    "sitio",
+    "centro",
+    "institucion",
+    "colegio",
+]
+
+CODE_KEYS = [
+    "codigo",
+    "cod",
+    "cod_paradero",
+    "cod_parade",
+    "cod_ruta",
+    "id_paradero",
+]
+
+
+def _clean_display_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text_value = str(value).strip()
+    return "" if text_value.lower() in {"", "none", "null", "nan", "registro"} else text_value
+
+
+def _get_case_insensitive(props: Dict[str, Any], keys: List[str]) -> str:
+    lower_props = {str(k).lower(): v for k, v in props.items()}
+    for key in keys:
+        value = _clean_display_value(lower_props.get(key.lower()))
+        if value:
+            return value
+    return ""
+
+
+def get_feature_display_name(props: Dict[str, Any]) -> str:
+    """Return a human label for map markers instead of generic "Registro"."""
+    if not props:
+        return "Registro"
+
+    direct_name = _get_case_insensitive(props, DISPLAY_NAME_KEYS)
+    code = _get_case_insensitive(props, CODE_KEYS)
+
+    if code and direct_name and code.lower() not in direct_name.lower():
+        return f"{code} - {direct_name}"
+    if direct_name:
+        return direct_name
+    if code:
+        return code
+
+    for key, value in props.items():
+        key_lower = str(key).lower()
+        if any(token in key_lower for token in ("nombre", "name", "descripcion", "descrip", "codigo", "cod_")):
+            cleaned = _clean_display_value(value)
+            if cleaned:
+                return cleaned
+
+    fallback = _clean_display_value(props.get("id") or props.get("gid") or props.get("objectid"))
+    return fallback or "Registro"
+
 
 class EntitySearchTools:
     async def consultar_predios(self, query: str, bbox: List[float] = None, limit: int = 20) -> Dict[str, Any]:
         """Busca predios en la base de datos catastral."""
         try:
+            safe_limit = max(1, min(int(limit or 20), MAX_TABLE_ROWS))
             results = await self.search_service.search(query)
-            features = results.get("features", [])[:limit]
+            features = results.get("features", [])[:safe_limit]
             markers = []
 
             for feature in features:
                 props = feature.get("properties", {})
                 geom = feature.get("geometry", {})
-                if geom and geom.get("type") == "Point":
+                if geom and geom.get("type") == "Point" and len(markers) < MAX_MAP_MARKERS:
                     coords = geom.get("coordinates", [0, 0])
                     markers.append({
                         "lat": coords[1],
                         "lng": coords[0],
-                        "label": props.get("matricula") or props.get("id"),
+                        "label": get_feature_display_name(props) or props.get("matricula") or props.get("id"),
                         "popup": f"Propietario: {props.get('propietario', 'N/A')}<br>Area: {props.get('area_m2', '0')} m2",
+                        "properties": props,
                     })
 
             table_data = [feature.get("properties", {}) for feature in features]
@@ -43,6 +115,8 @@ class EntitySearchTools:
                     "type": "table",
                     "title": f"Resultados de Busqueda: {query}",
                     "data": table_data,
+                    "total_records": len(table_data),
+                    "display_limit": safe_limit,
                     "pdf_export": True,
                 },
                 "mensaje": f"Se encontraron {len(features)} resultados para la busqueda '{query}'.",
@@ -97,6 +171,7 @@ class EntitySearchTools:
     async def consultar_datos_tabla(self, layer_name: str, limit: int = 10) -> Dict[str, Any]:
         """Obtiene un listado de registros de una capa para mostrar en tabla."""
         try:
+            safe_limit = max(1, min(int(limit or 10), MAX_TABLE_ROWS))
             stmt_layer = text("SELECT id FROM public.layers WHERE unaccent(name) ILIKE unaccent(:name) LIMIT 1")
             res_layer = await self.db.execute(stmt_layer, {"name": f"%{layer_name}%"})
             layer_id = res_layer.scalar()
@@ -104,13 +179,16 @@ class EntitySearchTools:
             if not layer_id:
                 return {"success": False, "error": f"Capa '{layer_name}' no encontrada."}
 
+            stmt_count = text("SELECT COUNT(*) FROM layer_features WHERE layer_id = :lid")
+            total_records = int((await self.db.execute(stmt_count, {"lid": layer_id})).scalar() or 0)
+
             stmt_data = text("""
                 SELECT properties, ST_AsGeoJSON(ST_Centroid(geom)) as centroid
                 FROM layer_features
                 WHERE layer_id = :lid
                 LIMIT :limit
             """)
-            result = await self.db.execute(stmt_data, {"lid": layer_id, "limit": limit})
+            result = await self.db.execute(stmt_data, {"lid": layer_id, "limit": safe_limit})
             rows = result.fetchall()
 
             table_data = []
@@ -120,15 +198,16 @@ class EntitySearchTools:
                 props = row[0]
                 table_data.append(props)
 
-                if row[1]:
+                if row[1] and len(markers) < MAX_MAP_MARKERS:
                     try:
                         geom = json.loads(row[1])
                         coords = geom.get("coordinates", [0, 0])
                         markers.append({
                             "lat": coords[1],
                             "lng": coords[0],
-                            "label": str(props.get("nombre") or props.get("id") or "Registro"),
+                            "label": get_feature_display_name(props),
                             "popup": f"Capa: {layer_name}",
+                            "properties": props,
                         })
                     except (TypeError, ValueError, KeyError, IndexError):
                         continue
@@ -143,6 +222,8 @@ class EntitySearchTools:
                     "title": f"Detalle de registros: {layer_name}",
                     "layer_name": layer_name,
                     "data": table_data,
+                    "total_records": total_records,
+                    "display_limit": safe_limit,
                     "pdf_export": True,
                 },
                 "map_actions": [
@@ -151,7 +232,7 @@ class EntitySearchTools:
                         "markers": markers,
                     }
                 ],
-                "mensaje": f"Se obtuvieron {len(table_data)} registros de la capa {layer_name}.",
+                "mensaje": f"Se muestran {len(table_data)} de {total_records} registros de la capa {layer_name}.",
             }
         except Exception as exc:
             logger.error("Error en consultar_datos_tabla: %s", exc)

@@ -33,7 +33,12 @@ class ToolsService(
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre exacto de la capa."},
-                            "limit": {"type": "integer", "description": "Cantidad de registros a retornar.", "default": 10},
+                            "limit": {
+                                "type": "integer",
+                                "description": "Cantidad de registros a retornar. Maximo permitido: 50.",
+                                "default": 10,
+                                "maximum": 50,
+                            },
                         },
                         "required": ["layer_name"],
                     },
@@ -48,7 +53,12 @@ class ToolsService(
                         "type": "object",
                         "properties": {
                             "query": {"type": "string", "description": "Texto de busqueda."},
-                            "limit": {"type": "integer", "description": "Maximo de resultados.", "default": 10},
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximo de resultados. Maximo permitido: 50.",
+                                "default": 10,
+                                "maximum": 50,
+                            },
                         },
                         "required": ["query"],
                     },
