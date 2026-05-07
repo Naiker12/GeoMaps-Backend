@@ -10,7 +10,7 @@ from app.schemas.ia import Message
 logger = logging.getLogger(__name__)
 
 class LLMProvider(abc.ABC):
-    """Abstract base class for LLM providers."""
+    """Clase base abstracta para proveedores de modelos de lenguaje (LLM)."""
 
     def __init__(self, api_key: str, model_id: str):
         self.api_key = api_key
@@ -22,7 +22,7 @@ class LLMProvider(abc.ABC):
         messages: List[Message], 
         tools: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
-        """Request completion from the provider."""
+        """Solicita una completación al proveedor."""
         pass
 
     @abc.abstractmethod
@@ -31,11 +31,11 @@ class LLMProvider(abc.ABC):
         messages: List[Message],
         tools: Optional[List[Dict[str, Any]]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Request streaming completion from the provider."""
+        """Solicita una completación vía streaming al proveedor."""
         pass
 
 class GeminiProvider(LLMProvider):
-    """Native Google Gemini provider using the new google-genai SDK."""
+    """Proveedor nativo de Google Gemini usando el SDK 'google-genai'."""
 
     def __init__(self, api_key: str, model_id: str):
         super().__init__(api_key, model_id)
@@ -43,7 +43,7 @@ class GeminiProvider(LLMProvider):
         self.client = genai.Client(api_key=self.api_key, http_options={'api_version': 'v1beta'})
 
     def _convert_messages(self, messages: List[Message]) -> tuple[List[types.Content], Optional[str]]:
-        """Converts internal Message format to Gemini format and extracts system instruction."""
+        """Convierte el formato de mensaje interno al formato de Gemini y extrae la instrucción de sistema."""
         gemini_contents = []
         system_instruction = None
         
@@ -81,7 +81,7 @@ class GeminiProvider(LLMProvider):
         return gemini_contents, system_instruction
 
     def _convert_tools(self, tools: Optional[List[Dict[str, Any]]]) -> Optional[List[types.Tool]]:
-        """Converts OpenAI tool format to Gemini types.Tool format."""
+        """Convierte el formato de herramientas de OpenAI al formato types.Tool de Gemini."""
         if not tools:
             return None
         
@@ -121,7 +121,6 @@ class GeminiProvider(LLMProvider):
 
             for attempt in range(2):
                 try:
-                    # Ejecucion en un hilo para no bloquear el loop si el SDK no es full async.
                     response = await loop.run_in_executor(
                         None,
                         lambda: self.client.models.generate_content(
@@ -150,7 +149,7 @@ class GeminiProvider(LLMProvider):
             if response is None:
                 raise last_error or RuntimeError("Gemini no retorno respuesta")
             
-            # Extraer contenido y tool calls
+            # Extraer contenido y llamadas a funciones (tool calls)
             content = ""
             tool_calls = []
             
@@ -186,7 +185,7 @@ class GeminiProvider(LLMProvider):
             status_code = 503
             error_code = "LLM_UNAVAILABLE"
             
-            # Mensajes amigables según el tipo de error
+            # Mensajes amigables para el usuario final según el tipo de error
             friendly_msg = "Lo siento, el servicio de IA no está disponible en este momento. Por favor, intenta de nuevo en unos minutos."
             if "404" in error_str or "not found" in error_str.lower():
                 friendly_msg = "El modelo de IA no está disponible o no se encuentra configurado correctamente."
@@ -221,7 +220,7 @@ class GeminiProvider(LLMProvider):
                 temperature=0.7,
             )
             
-            # El streaming en el nuevo SDK
+            # Ejecución del flujo de streaming con el SDK
             response_stream = self.client.models.generate_content_stream(
                 model=self.model_id,
                 contents=contents,
@@ -266,7 +265,7 @@ class GeminiProvider(LLMProvider):
             yield {"type": "error", "content": friendly_msg}
 
 class LLMProviderFactory:
-    """Factory for LLM providers. Now exclusively Gemini with google-genai."""
+    """Fábrica de proveedores LLM. Actualmente usa exclusivamente Gemini vía 'google-genai'."""
     
     @staticmethod
     def create(provider: str, api_key: str, model_id: str) -> LLMProvider:

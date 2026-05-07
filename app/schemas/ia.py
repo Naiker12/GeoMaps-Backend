@@ -7,14 +7,14 @@ class Message(BaseModel):
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = {}
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class ChatRequest(BaseModel):
     message: str
     model: str = "gemini-2.0-flash"
     conversation_id: Optional[UUID4] = None
-    context_mapa: Optional[Dict[str, Any]] = None
-    historial: Optional[List[Message]] = []
+    context_mapa: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    historial: Optional[List[Message]] = Field(default_factory=list)
 
 class DeleteConversationsRequest(BaseModel):
     conversation_ids: List[UUID4] = Field(default_factory=list)
@@ -32,10 +32,12 @@ class ChatResponse(BaseModel):
     tokens_output: Optional[int] = 0
     cost: Optional[float] = 0.0
     latency_ms: Optional[int] = 0
-    tools_called: List[Any] = []
-    tools_called_raw: List[Any] = []
-    map_actions: List[Dict[str, Any]] = []
+    tools_called: List[Any] = Field(default_factory=list)
+    tools_called_raw: List[Any] = Field(default_factory=list)
+    map_actions: List[Dict[str, Any]] = Field(default_factory=list)
     analytics_data: Optional[Dict[str, Any]] = None
+    suggestions: List[str] = Field(default_factory=list)
+    pdf_export: bool = False
 
 class StreamChunk(BaseModel):
     """Chunk individual enviado vía SSE."""
@@ -80,7 +82,7 @@ class MessageRead(BaseModel):
     role: str
     content: Optional[str] = None
     tool_call_id: Optional[str] = None
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
     class Config:

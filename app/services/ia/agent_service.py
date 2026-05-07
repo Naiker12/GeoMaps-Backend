@@ -23,6 +23,18 @@ def needs_chart_clarification(message: str) -> bool:
     chart_prefs_complete = "barras" in msg_lower or "pastel" in msg_lower or "línea" in msg_lower or "pie" in msg_lower
     return has_chart_intent and not chart_prefs_complete
 
+def normalize_extent_to_bbox(extent: Any) -> Optional[List[float]]:
+    """Convierte objetos de extensión de ArcGIS serializados por el frontend en una lista bbox [xmin, ymin, xmax, ymax]."""
+    if not extent:
+        return None
+    if isinstance(extent, list) and len(extent) >= 4:
+        return [float(extent[0]), float(extent[1]), float(extent[2]), float(extent[3])]
+    if isinstance(extent, dict):
+        keys = ("xmin", "ymin", "xmax", "ymax")
+        if all(extent.get(key) is not None for key in keys):
+            return [float(extent[key]) for key in keys]
+    return None
+
 logger = logging.getLogger(__name__)
 
 class AgentService:
@@ -49,7 +61,7 @@ class AgentService:
             return None
             
         d = dict(row)
-        # Cast decimal to float for Pydantic
+        # Convertir decimal a float para compatibilidad con Pydantic
         if d.get("input_cost_per_1k") is not None: d["input_cost_per_1k"] = float(d["input_cost_per_1k"])
         if d.get("output_cost_per_1k") is not None: d["output_cost_per_1k"] = float(d["output_cost_per_1k"])
         
@@ -191,7 +203,7 @@ class AgentService:
                     await self.history_service.save_conversation_summary(conv_id, new_summary)
                     conversation_summary = new_summary
             except Exception as e:
-                logger.warning(f"No se pudo generar el resumen automátio: {e}")
+                logger.warning(f"No se pudo generar el resumen automático: {e}")
 
         if needs_chart_clarification(request.message):
             final_response = "Para preparar tu gráfico, por favor indícame:\n1. ¿Tipo de gráfico? (Barras, Pastel, Línea)\n2. ¿Nivel de detalle? (Resumen, Completo, Por barrio)\n3. ¿Quieres compararlo con otra variable o período?"
@@ -207,8 +219,9 @@ class AgentService:
             )
 
         available_layers = await self._get_available_layers()
+        bbox = normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
         system_prompt = self.prompt_builder.build_system_prompt(
-            bbox=request.context_mapa.get("extent") if request.context_mapa else None,
+            bbox=bbox,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
             user_name=user.full_name or user.email,
@@ -261,6 +274,7 @@ class AgentService:
         map_actions = []
         tools_called = []
         analytics_data = None
+        executed_tool_calls = []
 
         try:
             response = await client.chat_complete(
@@ -270,7 +284,7 @@ class AgentService:
             
             if response.get("status") == "error":
                 raise LLMException(
-                    response.get("error_message", "Unknown Error"),
+                    message=response.get("error_message", "Error Desconocido"),
                     status_code=response.get("status_code", 500),
                     code=response.get("error_code", "LLM_ERROR")
                 )
@@ -293,6 +307,15 @@ class AgentService:
                     func_args = json.loads(tcall["function"]["arguments"])
                     tool_result = await self._execute_tool(func_name, func_args)
                     tools_called.append(func_name)
+                    executed_tool_calls.append({
+                        "id": tcall.get("id"),
+                        "type": tcall.get("type", "function"),
+                        "function": {
+                            "name": func_name,
+                            "arguments": json.dumps(func_args, ensure_ascii=False),
+                        },
+                        "success": bool(isinstance(tool_result, dict) and tool_result.get("success", True)),
+                    })
                     
                     if isinstance(tool_result, dict):
                         if tool_result.get("map_action"): map_actions.append(tool_result)
@@ -320,7 +343,7 @@ class AgentService:
                 )
                 if response.get("status") == "error":
                     raise LLMException(
-                        response.get("error_message", "Unknown Error"),
+                        message="Error Desconocido",
                         status_code=response.get("status_code", 500),
                         code=response.get("error_code", "LLM_ERROR")
                     )
@@ -354,7 +377,7 @@ class AgentService:
                 cost=cost,
                 latency_ms=latency_ms,
                 tools_called=tools_called,
-                tools_called_raw=msg.get("tool_calls") or [],
+                tools_called_raw=executed_tool_calls,
                 map_actions=map_actions,
                 analytics_data=analytics_data
             )
@@ -383,8 +406,9 @@ class AgentService:
         conversation_summary = await self.history_service.get_conversation_summary(conv_id)
         
         available_layers = await self._get_available_layers()
+        bbox = normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
         system_prompt = self.prompt_builder.build_system_prompt(
-            bbox=request.context_mapa.get("extent") if request.context_mapa else None,
+            bbox=bbox,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
             user_name=user.full_name or user.email,

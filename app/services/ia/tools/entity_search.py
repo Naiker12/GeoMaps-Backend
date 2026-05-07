@@ -52,7 +52,7 @@ def _get_case_insensitive(props: Dict[str, Any], keys: List[str]) -> str:
 
 
 def get_feature_display_name(props: Dict[str, Any]) -> str:
-    """Return a human label for map markers instead of generic "Registro"."""
+    """Retorna una etiqueta humana para marcadores de mapa en lugar del genérico 'Registro'."""
     if not props:
         return "Registro"
 
@@ -77,6 +77,16 @@ def get_feature_display_name(props: Dict[str, Any]) -> str:
     return fallback or "Registro"
 
 
+def _compact_table_row(props: Dict[str, Any], index: int, value: Any = None) -> Dict[str, Any]:
+    label = get_feature_display_name(props)
+    return {
+        "name": label,
+        "label": label,
+        "value": value if value is not None else index,
+        "properties": props,
+    }
+
+
 class EntitySearchTools:
     async def consultar_predios(self, query: str, bbox: List[float] = None, limit: int = 20) -> Dict[str, Any]:
         """Busca predios en la base de datos catastral."""
@@ -99,7 +109,10 @@ class EntitySearchTools:
                         "properties": props,
                     })
 
-            table_data = [feature.get("properties", {}) for feature in features]
+            table_data = [
+                _compact_table_row(feature.get("properties", {}), index + 1)
+                for index, feature in enumerate(features)
+            ]
             return {
                 "success": True,
                 "data": table_data,
@@ -113,13 +126,14 @@ class EntitySearchTools:
                 ],
                 "analytics_data": {
                     "type": "table",
-                    "title": f"Resultados de Busqueda: {query}",
+                    "title": f"Resultados de Búsqueda: {query}",
+                    "label": "Registro",
                     "data": table_data,
                     "total_records": len(table_data),
                     "display_limit": safe_limit,
                     "pdf_export": True,
                 },
-                "mensaje": f"Se encontraron {len(features)} resultados para la busqueda '{query}'.",
+                "mensaje": f"Se encontraron {len(features)} resultados para la búsqueda '{query}'.",
             }
         except Exception as exc:
             logger.error("Error en consultar_predios: %s", exc)
@@ -132,7 +146,7 @@ class EntitySearchTools:
         search_value: str,
         zoom_to: bool = True,
     ) -> Dict[str, Any]:
-        """Busca una entidad especifica en una capa y genera acciones de mapa."""
+        """Busca una entidad específica en una capa y genera acciones de mapa."""
         try:
             stmt = text("""
                 SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
@@ -151,7 +165,7 @@ class EntitySearchTools:
             if not entity:
                 return {
                     "found": False,
-                    "message": f"No encontre '{search_value}' en el campo {search_field} de la capa {layer_name}",
+                    "message": f"No encontré '{search_value}' en el campo {search_field} de la capa {layer_name}",
                 }
 
             map_actions = [
@@ -193,10 +207,17 @@ class EntitySearchTools:
 
             table_data = []
             markers = []
+            available_fields = set()
+            sample_values = {}
 
             for row in rows:
-                props = row[0]
-                table_data.append(props)
+                props = row[0] or {}
+                available_fields.update(str(key) for key in props.keys())
+                if not sample_values:
+                    sample_values = {str(key): value for key, value in props.items() if value not in (None, "")}
+                
+                # Para listado de tabla, usamos el índice como valor visual pero tipo tabla
+                table_data.append(_compact_table_row(props, len(table_data) + 1))
 
                 if row[1] and len(markers) < MAX_MAP_MARKERS:
                     try:
@@ -217,13 +238,18 @@ class EntitySearchTools:
                 "layer": layer_name,
                 "data": table_data,
                 "count": len(table_data),
+                "total_records": total_records,
+                "available_fields": sorted(available_fields),
+                "sample_values": sample_values,
                 "analytics_data": {
                     "type": "table",
-                    "title": f"Detalle de registros: {layer_name}",
+                    "title": f"Listado de {layer_name}",
                     "layer_name": layer_name,
+                    "label": "Registro",
                     "data": table_data,
                     "total_records": total_records,
                     "display_limit": safe_limit,
+                    # Eliminamos dominant_participation ficticia para datos de listado
                     "pdf_export": True,
                 },
                 "map_actions": [
@@ -232,8 +258,9 @@ class EntitySearchTools:
                         "markers": markers,
                     }
                 ],
-                "mensaje": f"Se muestran {len(table_data)} de {total_records} registros de la capa {layer_name}.",
+                "mensaje": f"Se muestran {len(table_data)} registros de un total de {total_records} en la capa {layer_name}.",
             }
         except Exception as exc:
             logger.error("Error en consultar_datos_tabla: %s", exc)
             return {"success": False, "error": str(exc)}
+

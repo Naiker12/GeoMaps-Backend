@@ -147,6 +147,33 @@ class ToolsService(
             {
                 "type": "function",
                 "function": {
+                    "name": "zoom_to_location",
+                    "description": "Mueve la camara del mapa a coordenadas especificas.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "coordinates": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description": "Par [longitud, latitud] del punto al que se movera el mapa.",
+                                "minItems": 2,
+                                "maxItems": 2,
+                            },
+                            "zoom_level": {
+                                "type": "integer",
+                                "description": "Nivel de zoom entre 1 y 20.",
+                                "default": 15,
+                                "minimum": 1,
+                                "maximum": 20,
+                            },
+                        },
+                        "required": ["coordinates"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "listar_campos_capa",
                     "description": "Explora que atributos tiene una capa.",
                     "parameters": {

@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     
     # AI Models (Native Gemini)
     GOOGLE_API: Optional[str] = None
+    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_TTL_HISTORY: int = 3600
+    REDIS_TTL_SUMMARY: int = 86400
+    IA_USAGE_LIMIT: int = 15
+    IA_USAGE_WINDOW_HOURS: int = 4
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

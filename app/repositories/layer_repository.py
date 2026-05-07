@@ -1,4 +1,4 @@
-"""Repositorio de capas vectoriales vectoriales (PostGIS).
+"""Repositorio de capas vectoriales (PostGIS).
 Extiende BaseRepository para heredar operaciones CRUD genéricas.
 """
 

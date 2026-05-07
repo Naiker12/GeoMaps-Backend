@@ -85,13 +85,24 @@ class LayerStatsTools:
             )
             rows = result.fetchall()
 
-            data = [{"name": str(row[0] or "N/A"), "value": row[1]} for row in rows]
+            data = [{"name": str(row[0] or "N/A"), "value": int(row[1] or 0)} for row in rows]
             visible_total = sum(item["value"] for item in data)
             other_value = max(0, total_records - visible_total)
-            if other_value:
+            if other_value > 0:
                 data.append({"name": "Otros", "value": other_value})
 
-            total = total_records or sum(item["value"] for item in data)
+            total = total_records if total_records > 0 else visible_total
+            
+            # Cálculo de participación para el insight
+            dominant_name = "N/A"
+            dominant_value = 0
+            participation_pct = 0
+            if data:
+                # El primer registro es el dominante por el ORDER BY 2 DESC
+                dominant_name = data[0]["name"]
+                dominant_value = data[0]["value"]
+                if total > 0:
+                    participation_pct = round((dominant_value / total) * 100, 1)
 
             response = {
                 "success": True,
@@ -106,22 +117,24 @@ class LayerStatsTools:
                         "visible": True,
                     }
                 ],
-                "mensaje": f"Se analizaron {total} registros en la capa {layer_name} basados en {field}.",
+                "mensaje": f"Análisis de la capa '{layer_name}' por el campo '{field}'. Se identificaron {total} registros válidos.",
             }
 
             if include_chart:
                 response["analytics_data"] = {
                     "type": requested_chart_type,
-                    "title": f"Distribucion de {field.replace('_', ' ').capitalize()}",
+                    "title": f"Distribución de {field.replace('_', ' ').capitalize()} en {layer_name}",
                     "layer_name": layer_name,
                     "label": field.replace("_", " ").capitalize(),
-                    "subtitle": f"{total} registros analizados; se muestran {len(data)} grupos para una lectura clara",
-                    "insight": f"El valor frecuente es {data[0]['name'] if data else 'N/A'} con {data[0]['value'] if data else 0} registros.",
+                    "subtitle": f"Análisis basado en {total} registros consolidados.",
+                    "insight": f"La categoría dominante es '{dominant_name}' con {dominant_value} registros, lo que representa el {participation_pct}% del total.",
                     "data": data,
                     "keys": ["value"],
                     "total_records": total,
                     "display_limit": max_chart_categories,
-                    "grouped_others": bool(other_value),
+                    "grouped_others": bool(other_value > 0),
+                    "dominant_category": dominant_name,
+                    "dominant_participation": f"{participation_pct}%",
                     "pdf_export": True,
                 }
 
@@ -129,3 +142,4 @@ class LayerStatsTools:
         except Exception as exc:
             logger.error("Error en consultar_estadisticas_capa: %s", exc)
             return {"success": False, "error": str(exc)}
+

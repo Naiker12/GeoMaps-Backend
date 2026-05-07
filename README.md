@@ -1,113 +1,442 @@
-# GEOMAPS - MOTOR DE BACKEND Y HUB DE INTELIGENCIA (OSGS)
+# GeoMaps Backend
 
-El Backend de GEOMAPS (Open SaaS Geo System) constituye la espina dorsal computacional y de seguridad de nuestra plataforma de análisis catastral y predictivo. Diseñado estrictamente bajo una arquitectura monolítica modular asíncrona, este sistema soporta miles de polígonos concurrentes, cálculos geográficos vectoriales y procesos in-memory intensivos. Se abandona por completo el patrón clásico MVC en favor de una **Arquitectura en Capas Limpias (Clean Architecture / Onion)** con fuertes principios SOLID y separación transaccional de bases de datos.
+Backend de GeoMaps construido con FastAPI, SQLAlchemy Async, PostgreSQL/PostGIS, Supabase y Google Gemini. Expone la API que alimenta el visor geoespacial, el panel administrativo, la gestion de proyectos, capas GIS, busqueda, descargas, API keys, usuarios, analitica e IA.
 
-Este documento de ingeniería presenta, en profundidad y con máximo rigor técnico, la toma de decisiones, la estructura, y el funcionamiento atómico interno de las APIs y del orquestador de Inteligencia Artificial que potencia el servicio.
+Este README documenta la arquitectura real del backend, sus servicios, librerias, variables de entorno, comandos, rutas y responsabilidades.
 
----
+## Tabla De Contenido
 
-## 1. ORQUESTACIÓN Y DESPLIEGUE CONTINUO (DEVOPS & LOCAL DEV)
+- [Funciones principales](#funciones-principales)
+- [Stack tecnico](#stack-tecnico)
+- [Arquitectura](#arquitectura)
+- [Estructura de carpetas](#estructura-de-carpetas)
+- [Servicios del backend](#servicios-del-backend)
+- [Modelos principales](#modelos-principales)
+- [Endpoints](#endpoints)
+- [Variables de entorno](#variables-de-entorno)
+- [Instalacion y ejecucion](#instalacion-y-ejecucion)
+- [Base de datos y migraciones](#base-de-datos-y-migraciones)
+- [Autenticacion y seguridad](#autenticacion-y-seguridad)
+- [IA](#ia)
+- [Observabilidad](#observabilidad)
+- [Buenas practicas](#buenas-practicas)
+- [Relacion con el frontend](#relacion-con-el-frontend)
 
-La inicialización del sistema aísla por completo el motor para prevenir contaminación de dependencias en el kernel operativo. 
+## Funciones Principales
 
-### 1.1 Secuencia de Comandos (Entorno Basado en Windows/WSL)
+| Modulo | Funcion |
+| --- | --- |
+| API REST | Expone rutas versionadas bajo `/api/v1`. |
+| Autenticacion | Valida JWT de Supabase, sincroniza usuarios y protege rutas privadas. |
+| Usuarios | Gestiona perfiles, roles, sesiones y operaciones administrativas. |
+| Proyectos | CRUD de proyectos, ubicacion, metricas, finanzas, ajustes de mapa, imagenes, modelos 3D y lotes. |
+| Capas GIS | Carga, almacena y consulta capas geograficas con features y geometria PostGIS. |
+| Busqueda | Busca proyectos, lotes y features por texto o coordenadas. |
+| Descargas | Administra recursos descargables, archivos, metadatos y publicacion. |
+| API Keys | Emite, revoca, audita y monitorea llaves de API. |
+| Administracion | Dashboards, analitica, monitoreo de IA y gestion global. |
+| IA | Chat, streaming, historial, sugerencias, uso, herramientas y proveedor Gemini. |
+| Storage | Integra Supabase Storage para archivos publicos o administrativos. |
+| Auditoria | Registra tiempos de respuesta, uso de API keys y actividad del sistema. |
+
+## Stack Tecnico
+
+| Libreria / Herramienta | Version | Uso en el proyecto |
+| --- | --- | --- |
+| FastAPI | `0.115.6` | Framework principal ASGI para API REST. |
+| Uvicorn | `0.34.0` | Servidor ASGI local/produccion. |
+| SQLAlchemy | `2.0.36` | ORM async, modelos y consultas. |
+| GeoAlchemy2 | `0.17.0` | Tipos y funciones geoespaciales para PostGIS. |
+| Psycopg | `3.2.10` | Driver PostgreSQL async/binario. |
+| Alembic | `1.14.0` | Migraciones de base de datos. |
+| Redis | `5.2.1` | Cache/historial de conversaciones IA. |
+| HTTPX | `0.28.1` | Cliente HTTP para JWKS de Supabase y llamadas externas. |
+| Pandas | `2.2.3` | Procesamiento tabular de datos. |
+| NumPy | `2.2.0` | Calculo numerico. |
+| Shapely | `2.0.6` | Manipulacion de geometria. |
+| PyProj | `3.7.1` | Transformaciones de coordenadas. |
+| GeoPandas | `1.0.1` | Lectura/procesamiento de archivos geoespaciales. |
+| Fiona | `1.10.1` | Lectura de formatos GIS como Shapefile. |
+| python-multipart | `0.0.19` | Uploads `multipart/form-data`. |
+| python-dotenv | `1.0.1` | Carga de variables desde `.env`. |
+| pydantic-settings | `2.7.0` | Configuracion tipada del entorno. |
+| Supabase | `2.11.0` | Auth, storage y operaciones con Supabase. |
+| Authlib | `1.3.2` | Manejo de JWT/JWK y soporte criptografico. |
+| pwdlib[argon2] | `0.2.1` | Hash/verificacion de contrasenas cuando aplica. |
+| email-validator | `>=2.0.0` | Validacion de correos en schemas Pydantic. |
+| greenlet | sin pin | Soporte requerido por SQLAlchemy async. |
+| google-genai | `>=1.0.0` | Cliente oficial para Google Gemini. |
+
+## Arquitectura
+
+El backend usa una arquitectura modular por capas:
+
+| Capa | Ubicacion | Responsabilidad |
+| --- | --- | --- |
+| Entrada ASGI | `app/main.py` | Crea FastAPI, configura CORS, middleware, excepciones, lifespan y rutas. |
+| Configuracion | `app/core/config.py` | Centraliza variables de entorno con Pydantic Settings. |
+| Seguridad | `app/core/security` | JWT local, JWT Supabase, dependencias de usuario y roles. |
+| API | `app/api` | Routers HTTP y dependencias de FastAPI. |
+| Schemas | `app/schemas` | Contratos Pydantic de request/response. |
+| Modelos DB | `app/db/models` | Tablas SQLAlchemy y tipos PostGIS. |
+| Sesion DB | `app/db/session.py` | Engine async y `AsyncSession`. |
+| Servicios | `app/services` | Reglas de negocio: proyectos, capas, descargas, busqueda, IA, analitica. |
+| Repositorios | `app/repositories` | Acceso a datos y consultas reutilizables. |
+| Infraestructura | `app/infrastructure` | Clientes externos como Gemini y repositorios concretos. |
+| Dominio | `app/domain` | Modelos y servicios de dominio para permisos/roles. |
+| Migraciones | `alembic` | Versionado de cambios de base de datos. |
+
+## Estructura De Carpetas
+
+```txt
+app/
+  api/
+    routes/               Rutas legacy o compartidas.
+    v1/                   API versionada principal.
+      admin/              Rutas administrativas.
+      endpoints/          Rutas especializadas como IA.
+  application/            Servicios de aplicacion por dominio.
+  core/                   Configuracion, logging, excepciones y seguridad.
+  db/
+    models/               Modelos SQLAlchemy.
+    session.py            Engine y sesiones async.
+  domain/                 Modelos y reglas de dominio.
+  infrastructure/         Clientes externos e implementaciones concretas.
+  repositories/           Repositorios de datos.
+  schemas/                Schemas Pydantic.
+  services/               Logica de negocio.
+  utils/                  Utilidades compartidas.
+alembic/                  Migraciones.
+docs/                     Documentacion complementaria.
+```
+
+## Servicios Del Backend
+
+| Archivo / Modulo | Responsabilidad |
+| --- | --- |
+| `app/services/project_service.py` | Gestion de proyectos, relaciones, uploads y lotes. |
+| `app/services/layer_service.py` | Carga, edicion y consulta de capas GIS. |
+| `app/services/geo_service.py` | Procesamiento geoespacial y conversion de datos. |
+| `app/services/search_service.py` | Busqueda global por texto/coordenadas. |
+| `app/services/download_service.py` | Metadatos de recursos descargables. |
+| `app/services/download_storage_service.py` | Upload/list/remove de archivos de descargas en Supabase Storage. |
+| `app/services/storage_service.py` | Servicio general de storage Supabase. |
+| `app/services/api_key_service.py` | Creacion, revocacion, estadisticas y logs de API keys. |
+| `app/services/analytics/*` | Resumenes, actividad, dashboards y metricas administrativas. |
+| `app/services/ia/agent_service.py` | Orquestacion principal del chat IA. |
+| `app/services/ia/history_service.py` | Historial de conversaciones con Redis. |
+| `app/services/ia/prompt_builder.py` | Construccion de prompts y contexto. |
+| `app/services/ia/tools_service.py` | Ejecucion de herramientas/acciones IA. |
+| `app/services/ia/usage_service.py` | Medicion de uso IA. |
+| `app/infrastructure/ia_llm_client.py` | Cliente/factory del proveedor Gemini con `google-genai`. |
+| `app/application/auth/service.py` | Sincronizacion de usuario con Supabase Auth. |
+
+## Modelos Principales
+
+| Modelo | Tabla | Funcion |
+| --- | --- | --- |
+| `User` | `users` | Perfil interno, rol, estado, datos personales y relacion con Supabase. |
+| `UserSession` | `user_sessions` | Sesiones de usuarios/admins, IP, user agent y expiracion. |
+| `Admin` | `admins` | Administradores internos cuando aplica. |
+| `Project` | `projects` | Proyecto inmobiliario/territorial base. |
+| `ProjectLocation` | `project_locations` | Coordenadas, geometria y URLs geoespaciales del proyecto. |
+| `ProjectMetrics` | `project_metrics` | Areas, niveles, unidades, avance, licencias y metricas. |
+| `ProjectFinancials` | `project_financials` | Inversion, precio promedio y moneda. |
+| `ProjectMapSettings` | `project_map_settings` | Color, opacidad, etiquetas y visualizador 3D. |
+| `ProjectAdminSettings` | `project_admin_settings` | Visibilidad publica, destacado y prioridad. |
+| `ProjectImage` | `project_images` | Imagenes asociadas al proyecto. |
+| `ProjectModel3D` | `project_models_3d` | Modelos 3D asociados al proyecto. |
+| `ProjectLot` | `project_lots` | Lotes con estado, precio, area, zona y geometria PostGIS. |
+| `Layer` | `layers` | Metadatos de capa GIS, visibilidad, estilo, archivo y configuraciones. |
+| `LayerFeature` | `layer_features` | Entidades individuales con propiedades JSONB y geometria PostGIS. |
+| `DownloadResource` | `download_resources` | Recursos descargables, archivo, categoria, tags y publicacion. |
+| `APIKey` | `api_keys` | Llaves de API, rol, visibilidad, limites, estado y hash. |
+| `APIKeyUsageLog` | `api_key_usage_logs` | Auditoria de uso por endpoint, metodo, estado, latencia e IP. |
+| `APIKeyDailyStats` | `api_key_daily_stats` | Agregados diarios por llave. |
+| `ActivityLog` | `activity_logs` | Eventos de actividad del sistema. |
+
+## Endpoints
+
+La documentacion interactiva se expone en:
+
+```txt
+http://localhost:8000/api/v1/docs
+http://localhost:8000/api/v1/redoc
+```
+
+Salud del servicio:
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `GET` | `/health` | Retorna estado basico del backend. |
+
+### Autenticacion
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/login/supabase` | Valida token Supabase y sincroniza usuario. |
+| `GET` | `/api/v1/auth/me` | Perfil autenticado. |
+| `PATCH` | `/api/v1/auth/me` | Actualiza perfil. |
+| `POST` | `/api/v1/auth/me/avatar` | Sube avatar. |
+| `POST` | `/api/v1/auth/logout` | Cierra sesion. |
+| `GET` | `/api/v1/auth/sessions` | Lista sesiones. |
+| `DELETE` | `/api/v1/auth/sessions/{session_id}` | Cierra una sesion especifica. |
+
+### Proyectos
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/projects/` | Crea proyecto. |
+| `GET` | `/api/v1/projects/` | Lista proyectos autenticados/admin. |
+| `GET` | `/api/v1/projects/public` | Lista proyectos publicos. |
+| `GET` | `/api/v1/projects/{id}` | Detalle de proyecto. |
+| `PUT` | `/api/v1/projects/{id}` | Actualiza proyecto. |
+| `DELETE` | `/api/v1/projects/{id}` | Elimina proyecto. |
+| `POST` | `/api/v1/projects/{id}/images` | Sube imagenes. |
+| `POST` | `/api/v1/projects/{id}/models` | Sube modelos 3D. |
+| `POST` | `/api/v1/projects/{id}/shapefile` | Procesa shapefile de proyecto/lotes. |
+| `GET` | `/api/v1/projects/{id}/lots/geojson` | Entrega lotes como GeoJSON. |
+| `PUT` | `/api/v1/projects/{id}/lots/{lot_id}` | Actualiza lote. |
+
+### Capas
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/layers/` | Crea capa desde archivo/metadatos. |
+| `GET` | `/api/v1/layers/` | Lista capas. |
+| `GET` | `/api/v1/layers/categories` | Lista categorias. |
+| `PATCH` | `/api/v1/layers/{layer_id}` | Actualiza capa o simbologia. |
+| `DELETE` | `/api/v1/layers/{layer_id}` | Elimina capa. |
+| `GET` | `/api/v1/layers/{layer_id}/features` | FeatureCollection de la capa. |
+| `GET` | `/api/v1/layers/features/properties` | Propiedades de multiples capas. |
+| `GET` | `/api/v1/layers/features/{feature_id}` | Detalle de una entidad. |
+| `GET` | `/api/v1/layers/{layer_id}/field-values` | Valores unicos de un campo. |
+| `GET` | `/api/v1/layers/{layer_id}/field-stats` | Estadisticas de campo numerico. |
+
+### Busqueda
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `GET` | `/api/v1/search/` | Busqueda global por `q` y radio opcional. |
+| `GET` | `/api/v1/search/suggestions` | Sugerencias de busqueda. |
+| `POST` | `/api/v1/search/viewed` | Registra visualizacion de resultado. |
+
+### Recursos Descargables
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/resources/` | Crea recurso descargable. |
+| `POST` | `/api/v1/resources/{resource_id}/upload` | Sube archivo al recurso. |
+| `GET` | `/api/v1/resources/` | Lista recursos admin. |
+| `GET` | `/api/v1/resources/public` | Lista recursos publicos agrupados. |
+| `DELETE` | `/api/v1/resources/{download_id}` | Elimina recurso. |
+
+### API Keys
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/keys/` | Crea llave para el usuario autenticado. |
+| `GET` | `/api/v1/keys/` | Lista llaves del usuario. |
+| `PATCH` | `/api/v1/keys/{key_id}/revoke` | Revoca llave. |
+| `DELETE` | `/api/v1/keys/{key_id}` | Elimina llave. |
+| `GET` | `/api/v1/keys/stats` | Estadisticas del usuario. |
+
+### Administracion
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/analytics/summary` | Resumen administrativo. |
+| `GET` | `/api/v1/admin/analytics/charts` | Datos para graficas. |
+| `GET` | `/api/v1/admin/analytics/usage` | Uso del sistema. |
+| `GET` | `/api/v1/admin/api-keys/` | Lista global de API keys. |
+| `POST` | `/api/v1/admin/api-keys/` | Crea llave para un usuario. |
+| `PATCH` | `/api/v1/admin/api-keys/{key_id}/revoke` | Revoca llave admin. |
+| `DELETE` | `/api/v1/admin/api-keys/{key_id}` | Elimina llave admin. |
+| `GET` | `/api/v1/admin/api-keys/stats/overview` | Resumen global de llaves. |
+| `PATCH` | `/api/v1/admin/api-keys/settings/rate-limit` | Cambia limite global. |
+| `POST` | `/api/v1/admin/api-keys/settings/pause` | Pausa/reactiva trafico. |
+| `PUT` | `/api/v1/admin/api-keys/settings/ip-whitelist` | Configura whitelist IP. |
+
+### Rutas IA
+
+| Metodo | Ruta | Funcion |
+| --- | --- | --- |
+| `POST` | `/api/v1/ia/chat` | Chat IA con respuesta completa. |
+| `POST` | `/api/v1/ia/chat/stream` | Chat IA con streaming. |
+| `GET` | `/api/v1/ia/models` | Modelos disponibles. |
+| `GET` | `/api/v1/ia/conversations` | Conversaciones del usuario. |
+| `GET` | `/api/v1/ia/conversations/{conversation_id}/messages` | Mensajes de una conversacion. |
+| `DELETE` | `/api/v1/ia/conversations` | Elimina conversaciones del usuario. |
+| `DELETE` | `/api/v1/ia/conversations/{conversation_id}` | Elimina una conversacion. |
+| `GET` | `/api/v1/ia/suggestions` | Sugerencias para el chat. |
+| `GET` | `/api/v1/ia/usage` | Uso IA del usuario. |
+| `GET` | `/api/v1/admin/ia/stats` | Estadisticas IA admin. |
+| `GET` | `/api/v1/admin/ia/audit-logs` | Auditoria IA. |
+| `GET` | `/api/v1/admin/ia/models` | Configuracion de modelos IA. |
+
+## Variables De Entorno
+
+Crear `.env` en la raiz del backend.
+
+```env
+DATABASE_URL=postgresql://user:password@host:5432/database
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-key
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+JWT_SECRET=your-local-jwt-secret
+SECRET_KEY=your-local-secret-key
+GOOGLE_API=your-google-gemini-api-key
+FRONTEND_URL=http://localhost:5173
+BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+| Variable | Obligatoria | Descripcion |
+| --- | --- | --- |
+| `DATABASE_URL` | Si | Conexion PostgreSQL. El codigo convierte `postgresql://` a `postgresql+psycopg://` cuando aplica. |
+| `SUPABASE_URL` | Si | URL del proyecto Supabase. |
+| `SUPABASE_ANON_KEY` | Si | Llave anonima para operaciones de auth. |
+| `SUPABASE_SERVICE_KEY` | Recomendada | Llave service role para storage/operaciones administrativas. |
+| `SUPABASE_JWT_SECRET` | Si | Secreto usado para validar tokens Supabase. |
+| `JWT_SECRET` / `SECRET_KEY` | Recomendada | Secreto para tokens locales y utilidades de seguridad. |
+| `GOOGLE_API` | Si usa IA | API key de Google Gemini. |
+| `FRONTEND_URL` | Recomendada | URL del frontend para CORS y callbacks. |
+| `BACKEND_CORS_ORIGINS` | Recomendada | Lista de origenes permitidos separados por coma o JSON list. |
+
+## Instalacion Y Ejecucion
+
+Requisitos recomendados:
+
+- Python 3.11 o superior.
+- PostgreSQL con extension PostGIS.
+- Redis si se usa historial/cache de IA.
+- Proyecto Supabase configurado.
+
+Windows PowerShell:
+
+```powershell
+cd C:\Users\gomez\Downloads\GeoMaps-Backend
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Linux/macOS:
 
 ```bash
-# 1. Posicionamiento en el Directorio Raíz del Repositorio de Servicios
 cd GeoMaps-Backend
-
-# 2. Virtualización de Entorno (Requerido Python 3.10 o superior)
-# Este paso crea la burbuja de dependencias exclusivas para el SDK espacial y ML.
 python -m venv venv
-# 3. Activación Rigurosa del Entorno (PowerShell o CMD)
-.\venv\Scripts\activate
-
-# 4. Ingesta Transaccional de Paquetes Core (ASGI, Computación y Logging)
+source venv/bin/activate
 pip install -r requirements.txt
-
-# 5. Arranque Simultáneo: Compilación en Caliente y Activación de Sockets
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --reload
-uvicorn app.main:app --reload   
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-Al finalizar la ejecución, los metadatos y el Swagger automatizado (OpenAPI) quedarán mapeados en `http://localhost:8000/docs`, listos para auditar las colecciones de endpoints POST, GET, PUT y DELETE en tiempo real.
 
----
+URLs utiles:
 
-## 2. MATRIZ DE RECHAZO: ¿POR QUÉ ELEGIMOS ESTAS PIEZAS DE HARDWARE Y SOFTWARE?
+| URL | Uso |
+| --- | --- |
+| `http://localhost:8000/health` | Health check. |
+| `http://localhost:8000/api/v1/docs` | Swagger/OpenAPI. |
+| `http://localhost:8000/api/v1/redoc` | ReDoc. |
 
-Para asegurar latencias sub-milisegundo en las consultas SIG (Sistemas de Información Geográfica), se descartaron arquitecturas populares que imponen sobrecarga (bloqueo del `event loop`) al procesar cálculos matemáticos masivos.
+## Base De Datos Y Migraciones
 
-| Componente Selecto | Solución Rechazada / Común | Justificación Técnica Exhaustiva |
-| :--- | :--- | :--- |
-| **FastAPI** | Flask, Django | Al manejar streams de Inteligencia Artificial y consultas pesadas, Python con Django se convierte en un cuello de botella sincrónico bloqueante. FastAPI (con Starlette subyacente) resuelve esto con el padrão *ASGI* y concurrencia `async/await`, permitiendo despachar consultas a OpenAI sin paralizar otras búsquedas catastrales simultáneas. Pydantic embebido valida la basura entrante antes de tocar la red lógica. |
-| **Pydantic V2** | Marshmallow, DRF Ser. | Reescribido en lenguaje Rust, multiplica por 50x la velocidad de las validaciones de JSONs y Geometrías (ej: features de polígonos extensos). Fallar temprano (*fail fast*) e imposibilitar colapsos (*Type Errors*) profundos. |
-| **PostgreSQL 15** | MySQL, MongoDB | Postgres no tiene rival para GIS empresarial. MongoDB flaquea espantosamente al lidiar con topología multipolígono. Postgres nos provee tipos masivos JSONB relacionales y un motor atómico, crucial en transacciones bancarias-inmobiliarias para asegurar la propiedad (ACID compliance extremo). |
-| **PostGIS 3.x** | Cálculos C++ externos | PostGIS introduce comandos espaciales directamente en las Query SQL (`ST_Intersects`, `ST_Buffer`), logrando que el hardware de disco filtre áreas sin tener que cargar la geometría entera a la memoria RAM de Python, ahorrando decenas de Gigabytes en cálculos urbanísticos abstractos. |
-| **YOLOv8** | Faster R-CNN, SSD | Nuestro motor autónomo de segmentación urbanística (vehículos, techos) requería inferencia a la mayor cantidad posible de *Frames Per Second* (FPS). YOLOv8 ofrece precisión de Estado del Arte (*SOTA*) en detecciones compactas. |
-| **OpenRouter** | Azure OpenAI Integrado | El ruteador abierto nos dota de resiliencia Anti-Caídas. Si GPT-4o experimenta apagones parciales de servidor, redireccionamos el motor a Anthropic Claude 3.5 mediante lógica local silenciosa. Elimina el riesgo de obsolescencia de un solo modelo. |
-| **Supabase** | Firebase / AWS Cognito | Provee JWT instantáneos emparejados a RLS de la base de datos subyacente de Postgres de forma 100% simétrica, evitando los sobrecostos de Middleware en servidores serverless. |
+El proyecto usa SQLAlchemy async y Alembic.
 
----
+Comandos comunes:
 
-## 3. ANÁLISIS DE LA ESTRUCTURA EN CAPAS CEBOLLA (CLEAN ARCHITECTURE)
+```bash
+alembic upgrade head
+alembic revision --autogenerate -m "descripcion_del_cambio"
+alembic downgrade -1
+```
 
-La separación brutal del código garantiza mantenibilidad. Cada módulo ignora por completo lo que sucede en el nivel superior, protegiendo así los modelos de base de datos de las respuestas Web.
+Consideraciones:
 
-### 3.1 Nivel 1: Dominio de Routers (La Puerta HTTP) - `/app/api/`
-Maneja de manera puramente aséptica las peticiones serializadas provenientes de React. Extrae los Headers (Tokens JWT), sanitiza malwares rudimentarios y entrega los paquetes al corazón de negocio.
-- **NO hay** operaciones a bases de datos aquí. Si necesitas una modificación, llama un Servicio.
+- La base de datos debe tener PostGIS habilitado.
+- Las geometrias principales usan SRID `4326`.
+- Las entidades GIS usan `JSONB` para propiedades flexibles.
+- `LayerFeature.geom` y geometria de proyectos/lotes deben tener indices espaciales para buen rendimiento.
 
-### 3.2 Nivel 2: Casos de Negocio Inteligentes (Services) - `/app/services/`
-- **Servicios de Mapas:** Extraen lotificaciones, cruzan datos de estratificación y ejecutan limpieza algorítmica de campos nulos (`NULL`) provenientes del motor SIG.
-- **Agentes GPT (ReAct):** Interpreta los "Prompts" humanos. Modifica la Temperatura (0.1 para buscar datos numéricos exactos, 0.7 para análisis sociodemográficos especulativos). Genera la invocación de herramientas (`Function Calling/Tools`) enviando el encuadre matemático interactivo del usuario (`BBox`).
+## Autenticacion Y Seguridad
 
-### 3.3 Nivel 3: El Almacén Epistémico (Repositories) - `/app/repositories/`
-- Alberga los métodos `SQLAlchemy AsyncSession`.
-- Todas las inyecciones de dependencias aterrizan aquí, traduciendo una solicitud lógica de "Buscar predio por valor" a un sofisticado script SQL asíncrono, garantizando el aislamiento criptográfico anti-inyecciones.
+El backend soporta dos mecanismos principales:
 
----
+| Mecanismo | Uso |
+| --- | --- |
+| JWT Supabase | Autenticacion del frontend, perfil de usuario y rutas privadas. |
+| API Key | Acceso programatico y auditoria de consumo por endpoint. |
 
-## 4. ESTÁNDARES CONTRACTUALES Y CONTROL DE AUDITORÍA (TELEMETRÍA)
+Flujo general:
 
-La plataforma incluye en su diseño un escrutinio forense y financiero para cada llamado algorítmico, fundamental en aplicaciones que fungen como un Software Productivo.
+1. El frontend inicia sesion con Supabase.
+2. El frontend envia `Authorization: Bearer <access_token>`.
+3. El backend valida token con dependencias de seguridad.
+4. Si el usuario no existe internamente, se sincroniza desde Supabase.
+5. Las rutas administrativas verifican rol antes de permitir operaciones.
+6. Las API keys se envian con `X-API-Key` o `api_key`.
+7. El middleware registra uso exitoso o intento fallido.
 
-### 4.1 Log de Ejecución de Inteligencia Artificial (`ia_audit_logs`)
-Un registro transaccional obligatorio que persiste cada *Token* inyectado en el LLM:
-1. `User_UUID`: Dueño del mensaje para cargo y limitación (Rate Limiting).
-2. `Model_Invoked`: Firma de la red conectada en ese frame (e.g. `openai/gpt-4o`).
-3. `Cost_USD`: Traducción hiperprecisa del millar de tokens gastados calculada tras el cierre de Stream de Respuesta, cruzada contra `ia_models_config`.
-4. `Latency_Chronometer`: Registro sub-microsegundo para medir fatiga temporal y aplicar bloqueos automáticos en caso de latencias letales (> 40 segundos).
+## IA
 
-### 4.2 Gobernanza Geográfica: Privacidad de Roles y Filtros Geográficos
-Todo el ecosistema geográfico filtra capas en segundo plano antes de enviarse al usuario mediante Row Level Security. Un token administrativo posee lectura ilimitada a mallas espaciales completas de Cartagena, mientras un usuario público ve la cuadrícula truncada o denegada geográficamente (Blindaje nativo de PostgreSQL RLS).
+La capa IA se concentra en `app/services/ia` e `app/infrastructure/ia_llm_client.py`.
 
----
+Responsabilidades:
 
-## 5. REPRODUCCIÓN MECÁNICA Y SOLUCIÓN DE BLOQUEOS (TROUBLESHOOTING)
+- Construir prompts con contexto de GeoMaps.
+- Enviar mensajes a Google Gemini usando `google-genai`.
+- Soportar respuesta normal y streaming.
+- Mantener historial de conversaciones con Redis.
+- Exponer modelos, sugerencias, conversaciones y uso.
+- Registrar informacion de monitoreo para administracion.
+- Ejecutar herramientas que el frontend puede traducir en acciones de mapa.
 
-El motor provee salvavidas de diagnóstico rápido para garantizar *Uptime* de los nodos locales.
+Variable requerida para proveedor Gemini:
 
-- **Falla Crítica de Compilación (Error en C inicialización C++):**
-  Asegurarse de tener preinstalado el paquete oficial de "Desktop Development with C++" de Microsoft Visual Studio Build Tools, vitalicio para precompilar librerías de análisis y validación (Ujson, PsycoPG2, Tensorflows).
+```env
+GOOGLE_API=your-google-gemini-api-key
+```
 
-- **502 Bad Gateway / Connection Reset Error:**
-  Probable saturación por tiempo de espera (*Connection Timeout*). Verifique el estrangulamiento de los puentes locales y deshabilite la depuración *Watchdog* extra si el IDE de desarrollo impone frenos, elevando explícitamente `--timeout-keep-alive 600` en Uvicorn.
+## Observabilidad
 
-- **Pérdida De Contexto JWT:**
-  La aplicación asume el Bearer Header bajo la clave `Authorization`. Asegurarse categóricamente mediante un inspector que la firma HMAC coincida paramétricamente con el perfil remoto provisto desde Supabase (Chequeo local de criptografía por algoritmo RSA256).
+El backend incluye:
 
----
+- Middleware que mide tiempo de respuesta y agrega `X-Process-Time`.
+- Registro de uso de API keys exitoso o fallido.
+- Logs configurados desde `app/core/logging.py`.
+- Health check en `/health`.
+- Endpoints administrativos de analitica e IA.
 
-## 6. EXPANSIÓN Y CRECIMIENTO ALGORÍTMICO (ROADMAP FUTURO)
+## Buenas Practicas
 
-Actualmente, las refactorizaciones de escalamiento in-memory y procesamiento vector están listas para ejecutarse:
+- Mantener routers delgados: la logica debe vivir en servicios.
+- Usar schemas Pydantic para requests/responses.
+- Usar repositorios para consultas repetidas o complejas.
+- No exponer `SUPABASE_SERVICE_KEY` al frontend.
+- Validar roles en rutas administrativas.
+- Ejecutar migraciones antes de levantar entornos nuevos.
+- Mantener los tipos del frontend sincronizados con los schemas del backend.
+- Documentar cualquier endpoint nuevo en este README y en OpenAPI mediante `response_model`.
 
-1. **Adopción de Almacenamiento Vectorizado:**
-   Implementar la extensión oficial `pgvector` sobre PostgreSQL integrando "Embeddings" profundos del historial del chat y propiedades complejas, llevando la deducción semántica predial hasta un paradigma `RAG` (Retrieval-Augmented Generation) avanzado.
-2. **Pipelines de Redes Convolucionales Cuda:**
-   Ejecutar librerías directas de CUDA de Nvidia, delegando las transferencias YOLO al hardware GPU esclavo del Host en producción.
-3. **Distribución Multi-Workers Horizontal:**
-   Migrar el nodo ASGI de desarrollo hacia Gunicorn como proxy local de balanceo (orquestando múltiples Hilos Worker en paralelo), permitiendo sostener hasta 15,000 conexiones transables en despliegues con Dockerización.
+## Relacion Con El Frontend
 
----
-© 2026 GEOMAPS UX/AI TEAM. PLATAFORMA DE INTELIGENCIA TERRITORIAL.
+El frontend espera este backend bajo:
+
+```txt
+http://localhost:8000/api/v1
+```
+
+CORS debe permitir al menos:
+
+```txt
+http://localhost:5173
+http://127.0.0.1:5173
+```
+
+Los contratos consumidos por el frontend se reflejan especialmente en:
+
+- `src/services/*` del frontend.
+- `src/core/types/*` del frontend.
+- `app/schemas/*` del backend.
+- `app/api/v1/*` y `app/api/routes/*` del backend.

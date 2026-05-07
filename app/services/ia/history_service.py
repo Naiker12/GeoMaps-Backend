@@ -1,4 +1,5 @@
 import json
+import logging
 import redis.asyncio as aioredis
 from uuid import UUID
 from typing import List, Optional, Any, Dict
@@ -7,12 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.ia import Conversation, MessageRead, IASuggestion
 from app.core.config import settings
 
-CACHE_TTL = 3600   # 1 hora
-
 class HistoryService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._redis: Optional[aioredis.Redis] = None
+        self.logger = logging.getLogger(__name__)
 
     async def _get_redis(self) -> aioredis.Redis:
         if not self._redis:
@@ -24,7 +24,7 @@ class HistoryService:
         return self._redis
 
 
-    # Cache key helpers
+    # Helpers para llaves de caché
     def _cache_key_history(self, conv_id: UUID) -> str:
         return f"geomaps:history:{conv_id}"
 
@@ -68,7 +68,7 @@ class HistoryService:
                     d["metadata"] = json.loads(d["metadata"])
                 messages.append(MessageRead.model_validate(d))
             except Exception as e:
-                print(f"Error parsing message: {e}")
+                self.logger.error(f"Error al procesar mensaje: {e}")
 
 
         # Guardar en cache
@@ -77,7 +77,7 @@ class HistoryService:
             await r.set(
                 self._cache_key_history(conversation_id),
                 json.dumps([m.model_dump() for m in messages], default=str),
-                ex=CACHE_TTL
+                ex=settings.REDIS_TTL_HISTORY
             )
         except Exception:
             pass
@@ -99,7 +99,7 @@ class HistoryService:
         trimmed = messages[-max_messages:]
         
         # Ajuste 1: Asegurar que el primer mensaje del historial sea de un usuario
-        # para que la IA tenga contexto claro de quin empez la interaccin actual.
+        # para que la IA tenga contexto claro de quién empezó la interacción actual.
         while trimmed and trimmed[0].role != "user":
             trimmed.pop(0)
             
@@ -131,7 +131,7 @@ class HistoryService:
             await r.set(
                 self._cache_key_summary(conversation_id),
                 summary,
-                ex=86400  # 24 horas
+                ex=settings.REDIS_TTL_SUMMARY
             )
         except Exception:
             pass
@@ -181,7 +181,7 @@ class HistoryService:
             try:
                 conversations.append(Conversation.model_validate(dict(row)))
             except Exception as e:
-                print(f"Error parsing conversation: {e}")
+                self.logger.error(f"Error al procesar conversación: {e}")
         return conversations
 
 
@@ -274,5 +274,5 @@ class HistoryService:
             try:
                 suggestions.append(IASuggestion.model_validate(dict(row)))
             except Exception as e:
-                print(f"Error parsing suggestion: {e}")
+                self.logger.error(f"Error al procesar sugerencia: {e}")
         return suggestions

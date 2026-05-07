@@ -11,8 +11,13 @@ class MapControlTools:
             "map_action": "toggle_layer",
         }
 
-    async def zoom_to_location(self, coordinates: Dict[str, float], zoom_level: int = 15) -> Dict[str, Any]:
+    async def zoom_to_location(self, coordinates: Dict[str, float] | list[float], zoom_level: int = 15) -> Dict[str, Any]:
         """Mueve el mapa y hace zoom a una ubicacion."""
+        if isinstance(coordinates, list):
+            if len(coordinates) < 2:
+                return {"success": False, "error": "Coordenadas invalidas. Usa [longitud, latitud]."}
+            coordinates = {"lng": coordinates[0], "lat": coordinates[1]}
+
         return {
             "success": True,
             "coordinates": coordinates,

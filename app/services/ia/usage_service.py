@@ -3,12 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from uuid import UUID
+from app.core.config import settings
 
 class UsageService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.LIMIT = 10
-        self.WINDOW_HOURS = 4
+        self.LIMIT = settings.IA_USAGE_LIMIT
+        self.WINDOW_HOURS = settings.IA_USAGE_WINDOW_HOURS
 
     async def get_user_usage(self, user_id: UUID) -> Dict[str, Any]:
         """
@@ -34,8 +35,8 @@ class UsageService:
         next_reset = None
 
         if is_blocked:
-            # Encontrar el mensaje más antiguo dentro de la ventana de los últimos 10
-            # que causará que el contador baje de 10.
+            # Encontrar el mensaje más antiguo dentro de la ventana que causará 
+            # que el contador baje del límite permitido.
             reset_stmt = text("""
                 SELECT created_at 
                 FROM ia_audit_logs 
@@ -52,7 +53,7 @@ class UsageService:
             oldest_msg_time = reset_res.scalar()
             
             if oldest_msg_time:
-                # El reset ocurre 4 horas después del mensaje más antiguo de la ventana
+                # El reset ocurre tras cumplirse la ventana desde el mensaje más antiguo
                 next_reset = oldest_msg_time + timedelta(hours=self.WINDOW_HOURS)
                 remaining_seconds = max(0, int((next_reset - datetime.now(next_reset.tzinfo)).total_seconds()))
 
