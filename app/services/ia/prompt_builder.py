@@ -1,14 +1,15 @@
-from typing import List, Dict
+import re
+from typing import Any, Dict, List, Optional
 
 
 class PromptBuilder:
     def build_system_prompt(
         self,
-        bbox: list = None,
-        active_layers: list = None,
-        available_layers: list = None,
-        user_name: str = "Usuario",
-        conversation_summary: str = None,
+        bbox: Optional[List[float]] = None,
+        active_layers: Optional[List[str]] = None,
+        available_layers: Optional[List[Dict[str, Any]]] = None,
+        user_name: Optional[str] = "Usuario",
+        conversation_summary: Optional[str] = None,
     ) -> str:
 
         layers_str = ""
@@ -55,8 +56,8 @@ CONTEXTO DEL PROYECTO
 ══════════════════════════════════════════════
 
   Usuario: {user_name}
-  Área visible (BBox): {bbox or 'Sin especificar'}
-  Capas ACTIVAS en el mapa: {active_layers or 'Ninguna activa aún'}
+  Área visible (BBox): {bbox or "Sin especificar"}
+  Capas ACTIVAS en el mapa: {active_layers or "Ninguna activa aún"}
   Capas DISPONIBLES con sus campos:
 {layers_str}
 {memory_block}
@@ -146,3 +147,48 @@ ESTILO
 
 """
         return prompt
+
+
+def extract_suggestions_from_text(text: str):
+    """
+    Extrae sugerencias del texto de la respuesta de la IA.
+    Busca patrones como [=Texto/] o líneas que empiecen con emojis al final.
+    Retorna (texto_limpio, lista_sugerencias).
+    """
+    if not text:
+        return "", []
+
+    suggestions = []
+
+    # 1. Buscar patrones [=Texto/]
+    pattern = r"\[=(.*?)/\]"
+    matches = re.findall(pattern, text)
+    if matches:
+        suggestions.extend([m.strip() for m in matches])
+        # Limpiar el texto de estos patrones
+        text = re.sub(pattern, "", text)
+
+    # 2. Buscar líneas finales con emojis si no hay suficientes sugerencias
+    if len(suggestions) < 3:
+        lines = text.split("\n")
+        new_text_lines = []
+        for line in lines:
+            line_strip = line.strip()
+            # Si la línea empieza con un emoji y está al final (o parece sugerencia)
+            # Ejemplo: "🔍 Ver más detalles"
+            if (
+                line_strip
+                and any(c in "🔍📊🗺️📍📈💡❓" for c in line_strip[:2])
+                and len(line_strip) < 50
+            ):
+                suggestions.append(line_strip)
+            else:
+                new_text_lines.append(line)
+
+        if len(suggestions) > len(matches):
+            text = "\n".join(new_text_lines)
+
+    # Limpiar espacios extra y normalizar
+    text = text.strip()
+    # Limitar a 3 sugerencias máximo para no saturar la UI
+    return text, suggestions[:3]

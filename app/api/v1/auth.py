@@ -4,9 +4,16 @@ Coordina Supabase, cookies seguras y sesiones de usuario.
 
 import logging
 import uuid
-import traceback
 
-from fastapi import APIRouter, Depends, HTTPException, Response, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +47,9 @@ async def login_supabase(
     try:
         payload = decode_supabase_token(body.access_token)
         if not payload:
-            raise HTTPException(status_code=401, detail="Token Supabase inválido o expirado")
+            raise HTTPException(
+                status_code=401, detail="Token Supabase inválido o expirado"
+            )
 
         # Iniciar sesión localmente (sincroniza perfil y genera access_token backend)
         user, local_token = await auth_service.start_user_session(
@@ -50,7 +59,9 @@ async def login_supabase(
             ua=request.headers.get("user-agent"),
         )
 
-        is_dev = "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
+        is_dev = (
+            "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
+        )
 
         # Token backend en cookie HttpOnly (más seguro que localStorage)
         response.set_cookie(
@@ -61,18 +72,20 @@ async def login_supabase(
             secure=not is_dev,
             max_age=86400,
         )
-        
+
         # PERSISTIR CAMBIOS (Importante!)
         await db.commit()
         await db.refresh(user)
-        
+
         return user
 
     except Exception as exc:
         logger.error("Error en login_supabase: %s", exc)
         if isinstance(exc, HTTPException):
             raise exc
-        raise HTTPException(status_code=400, detail=f"Fallo en autenticación backend: {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Fallo en autenticación backend: {exc}"
+        )
 
 
 @router.get("/me", response_model=UserBase)
@@ -112,7 +125,9 @@ async def upload_avatar(
 @router.post("/logout")
 async def logout(response: Response):
     """Limpia las cookies de autenticación del navegador."""
-    is_dev = "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
+    is_dev = (
+        "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
+    )
     response.delete_cookie(
         key="access_token",
         path="/",
@@ -136,7 +151,7 @@ async def get_my_sessions(
             device=_detect_device(s.user_agent),
             location=s.ip_address or "IP Desconocida",
             last_active=s.login_at,
-            is_current=False, # Implementar comparación con SID del token si es necesario
+            is_current=False,  # Implementar comparación con SID del token si es necesario
         )
         for s in sessions
     ]
@@ -156,18 +171,19 @@ async def revoke_session(
 
 def _detect_device(ua: str | None) -> str:
     """Extrae nombre legible del dispositivo desde el User-Agent."""
-    if not ua: return "Sesión remota"
-    
+    if not ua:
+        return "Sesión remota"
+
     device = "Dispositivo"
     for keyword in ["Windows", "iPhone", "Android", "Macintosh"]:
         if keyword in ua:
             device = keyword if keyword != "Macintosh" else "Mac"
             break
-            
+
     browser = "Navegador"
     for b in ["Chrome", "Safari", "Firefox", "Edg"]:
         if b in ua:
             browser = b if b != "Edg" else "Edge"
             break
-            
+
     return f"{browser} en {device}"

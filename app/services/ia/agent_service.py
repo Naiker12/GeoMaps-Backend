@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.infrastructure.ia_llm_client import LLMProviderFactory
-from app.services.ia.prompt_builder import PromptBuilder
+from app.services.ia.prompt_builder import PromptBuilder, extract_suggestions_from_text
 from app.services.ia.history_service import HistoryService
 from app.services.ia.tools import ToolsService
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig, StreamChunk
@@ -38,7 +38,7 @@ def normalize_extent_to_bbox(extent: Any) -> Optional[List[float]]:
 logger = logging.getLogger(__name__)
 
 class AgentService:
-    def __init__(self, db: AsyncSession, model_config: IAModelConfig = None):
+    def __init__(self, db: AsyncSession, model_config: Optional[IAModelConfig] = None):
         self.db = db
         self.model_config = model_config
         self.prompt_builder = PromptBuilder()
@@ -262,9 +262,15 @@ class AgentService:
              sanitized_history[-1]["tool_calls"] = None
 
         messages.extend(sanitized_history)
-        messages.append({"role": "user", "content": request.message})
         
-        await self.history_service.save_message(conv_id, "user", request.message)
+        # Preparar metadatos para el mensaje del usuario si hay adjuntos
+        user_metadata = {}
+        if request.attachments:
+            user_metadata["attachments"] = request.attachments
+
+        messages.append({"role": "user", "content": request.message, "metadata": user_metadata})
+        
+        await self.history_service.save_message(conv_id, "user", request.message, metadata=user_metadata)
 
         client = LLMProviderFactory.create(model_config.provider.lower(), settings.GOOGLE_API, model_config.model_id)
         tools = await self.tools_service.get_tools_metadata() if model_config.has_function_calling else []
@@ -363,8 +369,8 @@ class AgentService:
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
-            cost = (total_tokens_in * model_config.input_cost_per_1k / 1000) + \
-                   (total_tokens_out * model_config.output_cost_per_1k / 1000)
+            cost = (total_tokens_in * (model_config.input_cost_per_1k or 0.0) / 1000) + \
+                   (total_tokens_out * (model_config.output_cost_per_1k or 0.0) / 1000)
             
             await self._save_audit_log(user.id, conv_id, model_config.name, total_tokens_in, total_tokens_out, cost, latency_ms)
 
@@ -423,9 +429,14 @@ class AgentService:
                 "tool_call_id": msg.tool_call_id,
                 "metadata": msg.metadata
             })
-        messages.append({"role": "user", "content": request.message})
+        # Preparar metadatos para el mensaje del usuario si hay adjuntos
+        user_metadata = {}
+        if request.attachments:
+            user_metadata["attachments"] = request.attachments
+
+        messages.append({"role": "user", "content": request.message, "metadata": user_metadata})
         
-        await self.history_service.save_message(conv_id, "user", request.message)
+        await self.history_service.save_message(conv_id, "user", request.message, metadata=user_metadata)
 
         client = LLMProviderFactory.create(model_config.provider.lower(), settings.GOOGLE_API, model_config.model_id)
         tools = await self.tools_service.get_tools_metadata() if model_config.has_function_calling else []
@@ -506,19 +517,26 @@ class AgentService:
                 )
 
         # Guardar la respuesta final (solo si no fue una respuesta vacía tras tools)
+        suggestions = []
         if full_content:
+            extracted_text, suggestions = extract_suggestions_from_text(full_content)
             await self.history_service.save_message(
-                conv_id, "assistant", full_content,
-                metadata={"model": model_config.model_id, "map_actions": map_actions, "analytics_data": analytics_data}
+                conv_id, "assistant", extracted_text,
+                metadata={
+                    "model": model_config.model_id, 
+                    "map_actions": map_actions, 
+                    "analytics_data": analytics_data,
+                    "suggestions": suggestions
+                }
             )
 
         latency_ms = int((time.time() - start_time) * 1000)
-        cost = (total_tokens_in * model_config.input_cost_per_1k / 1000) + \
-               (total_tokens_out * model_config.output_cost_per_1k / 1000)
+        cost = (total_tokens_in * (model_config.input_cost_per_1k or 0.0) / 1000) + \
+               (total_tokens_out * (model_config.output_cost_per_1k or 0.0) / 1000)
         
         await self._save_audit_log(user.id, conv_id, model_config.name, total_tokens_in, total_tokens_out, cost, latency_ms)
 
-        yield f"data: {json.dumps({'type': 'done', 'map_actions': map_actions, 'analytics_data': analytics_data, 'tokens_input': total_tokens_in, 'tokens_output': total_tokens_out, 'cost': cost})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'map_actions': map_actions, 'analytics_data': analytics_data, 'suggestions': suggestions, 'tokens_input': total_tokens_in, 'tokens_output': total_tokens_out, 'cost': cost})}\n\n"
 
     async def _execute_tool(self, name: str, args: dict) -> Any:
         try:

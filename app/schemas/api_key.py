@@ -1,10 +1,13 @@
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from app.db.models.api_key import APIKeyStatus, APIKeyRole, APIKeyVisibility
+
+from app.db.models.api_key import APIKeyRole, APIKeyStatus, APIKeyVisibility
 
 # ─── API KEY SCHEMAS ──────────────────────────────────────────────
+
 
 class APIKeyBase(BaseModel):
     name: str = "Primary Key"
@@ -14,8 +17,10 @@ class APIKeyBase(BaseModel):
     expires_at: Optional[datetime] = None
     rate_limit_rpm: Optional[int] = None
 
+
 class APIKeyCreate(APIKeyBase):
     user_id: Optional[uuid.UUID] = None  # Si es Admin, puede asignar a otro usuario
+
 
 class APIKeyUpdate(BaseModel):
     name: Optional[str] = None
@@ -26,6 +31,7 @@ class APIKeyUpdate(BaseModel):
     expires_at: Optional[datetime] = None
     rate_limit_rpm: Optional[int] = None
 
+
 class APIKeyResponse(APIKeyBase):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -34,7 +40,7 @@ class APIKeyResponse(APIKeyBase):
     created_at: datetime
     last_used: Optional[datetime] = None
     status: APIKeyStatus
-    
+
     total_requests: int
     total_tokens: int
 
@@ -46,20 +52,25 @@ class APIKeyResponse(APIKeyBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class APIKeyAdminResponse(APIKeyResponse):
     user_email: Optional[str] = None  # Para facilitar la vista de admin
 
+
 # ─── METRICS & STATS SCHEMAS ──────────────────────────────────────
+
 
 class TrafficDataPoint(BaseModel):
     date: str
     requests: int
     errors: int
-    tokens: Any # Can be int or Dict[str, int] depending on the endpoint
+    tokens: Any  # Puede ser int o Dict[str, int] según el endpoint
+
 
 class EndpointDistribution(BaseModel):
     endpoint: str
     requests: int
+
 
 class APIKeyStatsOverview(BaseModel):
     total_requests: int
@@ -73,21 +84,26 @@ class APIKeyStatsOverview(BaseModel):
     endpoint_distribution: Dict[str, int]
     token_distribution: Optional[Dict[str, int]] = None
 
+
 # ─── CONFIGURATION SCHEMAS ────────────────────────────────────────
+
 
 class IPWhitelistBase(BaseModel):
     cidr_block: str
     label: Optional[str] = None
     api_key_id: Optional[uuid.UUID] = None
 
+
 class IPWhitelistResponse(IPWhitelistBase):
     id: uuid.UUID
     created_at: datetime
+
 
 class RateLimitConfigBase(BaseModel):
     rpm_limit: int = 1000
     daily_limit: Optional[int] = None
     monthly_quota: int = 500000
+
 
 class RateLimitConfigResponse(RateLimitConfigBase):
     user_id: uuid.UUID
@@ -95,13 +111,15 @@ class RateLimitConfigResponse(RateLimitConfigBase):
     paused_at: Optional[datetime]
     updated_at: datetime
 
+
 class EmergencyPauseRequest(BaseModel):
     pause: bool
+
 
 class PaginatedAPIKeyAdminResponse(BaseModel):
     items: List[APIKeyAdminResponse]
     total: int
     page: int
     limit: int
-    
+
     model_config = ConfigDict(from_attributes=True)

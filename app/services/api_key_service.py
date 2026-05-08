@@ -1,24 +1,27 @@
 import uuid
-from typing import List, Optional, Tuple, Sequence, Dict, Any
+from typing import Any, Dict, Optional, Sequence, Tuple
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models.api_key import APIKey, APIKeyStatus, APIKeyRole, APIKeyVisibility
+
+from app.db.models.api_key import APIKey, APIKeyStatus
 from app.repositories.api_key import APIKeyRepository
-from app.schemas.api_key import APIKeyCreate, APIKeyUpdate
+from app.schemas.api_key import APIKeyCreate
+
 
 class APIKeyService:
     def __init__(self, db: AsyncSession):
         self.repository = APIKeyRepository(db)
 
     async def create_api_key(
-        self, 
-        user_id: uuid.UUID, 
+        self,
+        user_id: uuid.UUID,
         api_key_in: APIKeyCreate,
-        # Admin overrides
-        assigned_user_id: Optional[uuid.UUID] = None
+        # Parámetros opcionales de anulación para administradores
+        assigned_user_id: Optional[uuid.UUID] = None,
     ) -> Tuple[APIKey, str]:
         # Si assigned_user_id está presente, es que un Admin está asignando key a otro
         target_user_id = assigned_user_id or user_id
-        
+
         return await self.repository.create_key(
             user_id=target_user_id,
             name=api_key_in.name,
@@ -26,39 +29,44 @@ class APIKeyService:
             visibility=api_key_in.visibility,
             description=api_key_in.description,
             expires_at=api_key_in.expires_at,
-            rate_limit_rpm=api_key_in.rate_limit_rpm
+            rate_limit_rpm=api_key_in.rate_limit_rpm,
         )
 
     async def list_user_keys(self, user_id: uuid.UUID) -> Sequence[APIKey]:
         return await self.repository.get_by_user(user_id=user_id, active_only=False)
 
-    async def revoke_api_key(self, key_id: uuid.UUID, user_id: uuid.UUID, is_admin: bool = False) -> Optional[APIKey]:
+    async def revoke_api_key(
+        self, key_id: uuid.UUID, user_id: uuid.UUID, is_admin: bool = False
+    ) -> Optional[APIKey]:
         db_obj = await self.repository.get(key_id)
         if not db_obj:
             return None
-        
-        # Security check: must be owner or admin
+
+        # Verificar que sea el propietario o un administrador
         if not is_admin and db_obj.user_id != user_id:
             return None
-        
+
         from datetime import datetime
+
         update_data = {
             "status": APIKeyStatus.REVOKED,
             "revoked_at": datetime.now(),
-            "revoked_by": user_id if is_admin else db_obj.user_id
+            "revoked_by": user_id if is_admin else db_obj.user_id,
         }
-        
+
         return await self.repository.update(db_obj, update_data)
 
-    async def delete_api_key(self, key_id: uuid.UUID, user_id: uuid.UUID, is_admin: bool = False) -> bool:
+    async def delete_api_key(
+        self, key_id: uuid.UUID, user_id: uuid.UUID, is_admin: bool = False
+    ) -> bool:
         db_obj = await self.repository.get(key_id)
         if not db_obj:
             return False
-            
-        # Security check: must be owner or admin
+
+        # Verificar que sea el propietario o un administrador
         if not is_admin and db_obj.user_id != user_id:
             return False
-            
+
         return await self.repository.delete(db_obj.id)
 
     async def get_key_by_hash(self, key_hash: str) -> Optional[APIKey]:
@@ -72,7 +80,7 @@ class APIKeyService:
 
     async def get_user_stats_summary(self, user_id: uuid.UUID) -> Dict[str, Any]:
         return await self.repository.get_user_stats_summary(user_id)
-        
+
     async def log_api_usage(self, **kwargs):
         return await self.repository.log_usage(**kwargs)
 

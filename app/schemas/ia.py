@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[UUID4] = None
     context_mapa: Optional[Dict[str, Any]] = Field(default_factory=dict)
     historial: Optional[List[Message]] = Field(default_factory=list)
+    attachments: Optional[List[Dict[str, Any]]] = None # Listado de {mime_type, data}
 
 class DeleteConversationsRequest(BaseModel):
     conversation_ids: List[UUID4] = Field(default_factory=list)

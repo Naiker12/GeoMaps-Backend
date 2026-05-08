@@ -2,6 +2,7 @@ import abc
 import logging
 import json
 import asyncio
+import base64
 from google import genai
 from google.genai import types
 from typing import List, Dict, Any, Optional, AsyncGenerator
@@ -44,6 +45,7 @@ class GeminiProvider(LLMProvider):
 
     def _convert_messages(self, messages: List[Message]) -> tuple[List[types.Content], Optional[str]]:
         """Convierte el formato de mensaje interno al formato de Gemini y extrae la instrucción de sistema."""
+        import base64
         gemini_contents = []
         system_instruction = None
         
@@ -52,11 +54,10 @@ class GeminiProvider(LLMProvider):
                 system_instruction = m.content
                 continue
                 
-            # El rol para respuestas de herramientas en Gemini v1beta es 'user' 
-            # pero el contenido debe tener partes de function_response
             role = "user" if m.role in ["user", "tool"] else "model"
-            
             parts = []
+            
+            # 1. Agregar texto
             if m.content:
                 if m.role == "tool":
                     parts.append(types.Part.from_function_response(
@@ -66,6 +67,22 @@ class GeminiProvider(LLMProvider):
                 else:
                     parts.append(types.Part.from_text(text=m.content))
             
+            # 2. Agregar Archivos Adjuntos (Visión)
+            attachments = m.metadata.get("attachments") if m.metadata else None
+            if attachments and isinstance(attachments, list):
+                for att in attachments:
+                    try:
+                        mime_type = att.get("mime_type", "image/png")
+                        base64_data = att.get("data", "")
+                        if "," in base64_data:
+                            base64_data = base64_data.split(",")[1]
+                        
+                        img_data = base64.b64decode(base64_data)
+                        parts.append(types.Part.from_bytes(data=img_data, mime_type=mime_type))
+                    except Exception as e:
+                        logger.error(f"Error decodificando adjunto: {e}")
+            
+            # 3. Agregar Llamadas a Herramientas
             if m.metadata and "tool_calls" in m.metadata:
                 for tcall in m.metadata["tool_calls"]:
                     parts.append(types.Part.from_function_call(
@@ -114,20 +131,16 @@ class GeminiProvider(LLMProvider):
                 temperature=0.7,
             )
 
-            # Ejecución en un hilo para no bloquear el loop si el SDK no es full async
-            loop = asyncio.get_event_loop()
             response = None
             last_error = None
 
             for attempt in range(2):
                 try:
-                    response = await loop.run_in_executor(
-                        None,
-                        lambda: self.client.models.generate_content(
-                            model=self.model_id,
-                            contents=contents,
-                            config=config
-                        )
+                    # Usamos el cliente asíncrono nativo (aio)
+                    response = await self.client.aio.models.generate_content(
+                        model=self.model_id,
+                        contents=contents,
+                        config=config
                     )
                     break
                 except Exception as e:
@@ -220,14 +233,12 @@ class GeminiProvider(LLMProvider):
                 temperature=0.7,
             )
             
-            # Ejecución del flujo de streaming con el SDK
-            response_stream = self.client.models.generate_content_stream(
+            # Usamos el stream asíncrono nativo (aio)
+            async for chunk in self.client.aio.models.generate_content_stream(
                 model=self.model_id,
                 contents=contents,
                 config=config
-            )
-            
-            for chunk in response_stream:
+            ):
                 if chunk.candidates:
                     candidate = chunk.candidates[0]
                     for part in candidate.content.parts:

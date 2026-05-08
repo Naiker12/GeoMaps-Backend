@@ -1,14 +1,21 @@
 import uuid
-from datetime import datetime
-from typing import List, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db, get_current_admin_user
+
+from app.api.deps import get_current_admin_user, get_db
 from app.db.models.user import User
-from app.schemas.api_key import APIKeyAdminResponse, APIKeyCreate, APIKeyStatsOverview, PaginatedAPIKeyAdminResponse
+from app.schemas.api_key import (
+    APIKeyAdminResponse,
+    APIKeyCreate,
+    APIKeyStatsOverview,
+    PaginatedAPIKeyAdminResponse,
+)
 from app.services.api_key_service import APIKeyService
 
 router = APIRouter()
+
 
 @router.get("/", response_model=PaginatedAPIKeyAdminResponse)
 async def list_admin_api_keys(
@@ -26,14 +33,12 @@ async def list_admin_api_keys(
     keys, total = await api_key_service.list_admin_keys_paginated(
         status=status, role=role, user_id=user_id, search=search, page=page, limit=limit
     )
-    return {
-        "items": keys,
-        "total": total,
-        "page": page,
-        "limit": limit
-    }
+    return {"items": keys, "total": total, "page": page, "limit": limit}
 
-@router.post("/", response_model=APIKeyAdminResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/", response_model=APIKeyAdminResponse, status_code=status.HTTP_201_CREATED
+)
 async def admin_create_api_key(
     api_key_in: APIKeyCreate,
     current_admin: User = Depends(get_current_admin_user),
@@ -41,18 +46,21 @@ async def admin_create_api_key(
 ):
     """Genera una nueva API Key para un usuario específico desde el panel administrativo."""
     if not api_key_in.user_id:
-        raise HTTPException(status_code=400, detail="Debe proporcionar un user_id para asignar la key.")
-        
+        raise HTTPException(
+            status_code=400, detail="Debe proporcionar un user_id para asignar la key."
+        )
+
     api_key_service = APIKeyService(db)
     api_key, raw_key = await api_key_service.create_api_key(
-        user_id=current_admin.id, # el admin es quien ejecuta
+        user_id=current_admin.id,  # el admin es quien ejecuta
         api_key_in=api_key_in,
-        assigned_user_id=api_key_in.user_id
+        assigned_user_id=api_key_in.user_id,
     )
-    
+
     response = APIKeyAdminResponse.model_validate(api_key)
     response.key = raw_key
     return response
+
 
 @router.patch("/{key_id}/revoke", response_model=APIKeyAdminResponse)
 async def admin_revoke_api_key(
@@ -63,13 +71,12 @@ async def admin_revoke_api_key(
     """Revoca una API Key global de cualquier usuario."""
     api_key_service = APIKeyService(db)
     revoked = await api_key_service.revoke_api_key(
-        key_id=key_id, 
-        user_id=current_admin.id, 
-        is_admin=True
+        key_id=key_id, user_id=current_admin.id, is_admin=True
     )
     if not revoked:
         raise HTTPException(status_code=404, detail="API Key no encontrada.")
     return revoked
+
 
 @router.get("/stats/overview", response_model=APIKeyStatsOverview)
 async def get_admin_stats_overview(
@@ -78,6 +85,8 @@ async def get_admin_stats_overview(
     """Obtiene el resumen global de métricas del sistema de API Keys."""
     api_key_service = APIKeyService(db)
     return await api_key_service.get_overview_stats()
+
+
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def admin_delete_api_key(
     key_id: uuid.UUID,
@@ -86,12 +95,16 @@ async def admin_delete_api_key(
 ):
     """Elimina permanentemente cualquier API Key (Solo ADMIN)."""
     api_key_service = APIKeyService(db)
-    success = await api_key_service.delete_api_key(key_id, current_admin.id, is_admin=True)
+    success = await api_key_service.delete_api_key(
+        key_id, current_admin.id, is_admin=True
+    )
     if not success:
         raise HTTPException(status_code=404, detail="API Key no encontrada.")
     return None
 
-# --- Advanced Settings (Settings cards in UI) ---
+
+# --- Configuración Avanzada ---
+
 
 @router.patch("/settings/rate-limit")
 async def update_global_rate_limit(
@@ -103,10 +116,11 @@ async def update_global_rate_limit(
     rpm = data.get("rpm_limit")
     if not rpm:
         raise HTTPException(status_code=400, detail="Se requiere rpm_limit")
-    
+
     api_key_service = APIKeyService(db)
     result = await api_key_service.update_global_rate_limit(rpm, current_admin.id)
     return {"status": "success", "rpm_limit": result.rpm_limit}
+
 
 @router.post("/settings/pause")
 async def toggle_traffic_pause(
@@ -116,10 +130,11 @@ async def toggle_traffic_pause(
 ):
     """Pausa o reanuda el tráfico global de la API (Solo ADMIN)."""
     paused = data.get("paused", False)
-    
+
     api_key_service = APIKeyService(db)
     result = await api_key_service.toggle_global_traffic_pause(paused, current_admin.id)
     return {"status": "success", "paused": result.traffic_paused}
+
 
 @router.put("/settings/ip-whitelist")
 async def update_global_ip_whitelist(
@@ -129,7 +144,7 @@ async def update_global_ip_whitelist(
 ):
     """Configura la lista blanca de IPs globales (Solo ADMIN)."""
     ips = data.get("ips", [])
-    
+
     api_key_service = APIKeyService(db)
     result = await api_key_service.update_global_ip_whitelist(ips, current_admin.id)
     return {"status": "success", "ips": result}

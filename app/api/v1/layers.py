@@ -1,13 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-import uuid
 import json
+import uuid
 from typing import List, Optional, Union
 
-from app.api.deps import get_db, get_current_active_user, get_current_user_optional
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_active_user, get_current_user_optional, get_db
 from app.db.models.user import User
 from app.schemas.layer import (
-    LayerResponse, LayerCreate, FeatureCollectionSchema, LayerPublicResponse
+    FeatureCollectionSchema,
+    LayerCreate,
+    LayerPublicResponse,
+    LayerResponse,
 )
 from app.services.layer_service import LayerService
 
@@ -115,7 +128,7 @@ async def update_layer(
         update_data["map_color"] = map_color
     if map_opacity is not None:
         update_data["map_opacity"] = map_opacity
-    
+
     if symbology is not None:
         try:
             update_data["symbology"] = json.loads(symbology)
@@ -182,16 +195,7 @@ async def get_layer_geojson(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Obtiene el GeoJSON de la capa.
-    🔐 Según manual Sección 3.2: Acceso a FEATURES es REQUERIDO.
-    """
-    # Permitido para acceso público desde el frontend
-    # if not current_user:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_401_UNAUTHORIZED,
-    #         detail="Se requiere API Key o Sesión activa para acceder a los datos GeoJSON."
-    #     )
-
+    """Obtiene el GeoJSON de la capa. Accesible públicamente desde el frontend."""
     service = LayerService(db)
     return await service.get_layer_geojson(layer_id)
 

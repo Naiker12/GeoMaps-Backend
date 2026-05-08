@@ -1,6 +1,7 @@
 """Configuración centralizada de GeoMaps Backend mediante Pydantic Settings."""
 
-from typing import List, Optional, Union, Any
+from typing import Any, List, Optional, Union
+
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -52,8 +53,8 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_JWT_SECRET: str
-    
-    # AI Models (Native Gemini)
+
+    # Modelos de IA (Gemini Nativo)
     GOOGLE_API: Optional[str] = None
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_TTL_HISTORY: int = 3600
@@ -62,9 +63,7 @@ class Settings(BaseSettings):
     IA_USAGE_WINDOW_HOURS: int = 4
 
     model_config = SettingsConfigDict(
-        case_sensitive=True,
-        env_file=".env",
-        extra="ignore"
+        case_sensitive=True, env_file=".env", extra="ignore"
     )
 
 
