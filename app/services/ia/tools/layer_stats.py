@@ -135,7 +135,7 @@ class LayerStatsTools:
                     "grouped_others": bool(other_value > 0),
                     "dominant_category": dominant_name,
                     "dominant_participation": f"{participation_pct}%",
-                    "pdf_export": True,
+                    "report_available": True,
                 }
 
             return response

@@ -138,7 +138,7 @@ class SearchService:
         Ya no busca en properties->>'name' ni properties->>'nombre' directamente.
         Todo pasa por display_name y search_vector que fueron poblados por el normalizador.
         """
-        # 1. Features GIS
+        # Features GIS
         # Usamos un Search Rank: FTS tiene peso 2, Similitud Trigámica tiene peso 5
         stmt_features = text("""
             SELECT 
@@ -186,7 +186,7 @@ class SearchService:
                 "properties": props
             })
 
-        # 2. Proyectos (Inmobiliarios)
+        # Proyectos (Inmobiliarios)
         stmt_projects = text("""
             SELECT 
                 p.id::text,

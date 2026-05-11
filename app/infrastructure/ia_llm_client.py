@@ -2,7 +2,6 @@ import abc
 import logging
 import json
 import asyncio
-import base64
 from google import genai
 from google.genai import types
 from typing import List, Dict, Any, Optional, AsyncGenerator
@@ -45,7 +44,6 @@ class GeminiProvider(LLMProvider):
 
     def _convert_messages(self, messages: List[Message]) -> tuple[List[types.Content], Optional[str]]:
         """Convierte el formato de mensaje interno al formato de Gemini y extrae la instrucción de sistema."""
-        import base64
         gemini_contents = []
         system_instruction = None
         
@@ -57,7 +55,7 @@ class GeminiProvider(LLMProvider):
             role = "user" if m.role in ["user", "tool"] else "model"
             parts = []
             
-            # 1. Agregar texto
+            # Agregar texto
             if m.content:
                 if m.role == "tool":
                     parts.append(types.Part.from_function_response(
@@ -67,22 +65,7 @@ class GeminiProvider(LLMProvider):
                 else:
                     parts.append(types.Part.from_text(text=m.content))
             
-            # 2. Agregar Archivos Adjuntos (Visión)
-            attachments = m.metadata.get("attachments") if m.metadata else None
-            if attachments and isinstance(attachments, list):
-                for att in attachments:
-                    try:
-                        mime_type = att.get("mime_type", "image/png")
-                        base64_data = att.get("data", "")
-                        if "," in base64_data:
-                            base64_data = base64_data.split(",")[1]
-                        
-                        img_data = base64.b64decode(base64_data)
-                        parts.append(types.Part.from_bytes(data=img_data, mime_type=mime_type))
-                    except Exception as e:
-                        logger.error(f"Error decodificando adjunto: {e}")
-            
-            # 3. Agregar Llamadas a Herramientas
+            # Agregar Llamadas a Herramientas
             if m.metadata and "tool_calls" in m.metadata:
                 for tcall in m.metadata["tool_calls"]:
                     parts.append(types.Part.from_function_call(

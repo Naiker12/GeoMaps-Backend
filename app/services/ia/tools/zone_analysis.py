@@ -48,7 +48,7 @@ class ZoneAnalysisTools:
                         {"key": "name", "label": "Capa"},
                         {"key": "value", "label": "Cantidad"},
                     ],
-                    "pdf_export": True,
+                    "report_available": True,
                 },
                 "mensaje": f"He analizado el area seleccionada y encontre {total_features} elementos distribuidos en {total_layers} capas.",
             }

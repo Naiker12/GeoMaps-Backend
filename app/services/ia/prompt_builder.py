@@ -10,6 +10,9 @@ class PromptBuilder:
         available_layers: Optional[List[Dict[str, Any]]] = None,
         user_name: Optional[str] = "Usuario",
         conversation_summary: Optional[str] = None,
+        active_zone: Optional[Dict[str, Any]] = None,
+        conversation_layers: Optional[List[str]] = None,
+        applied_filters: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
 
         layers_str = ""
@@ -26,6 +29,29 @@ class PromptBuilder:
 MEMORIA DE CONVERSACIÓN PREVIA:
 {conversation_summary}
 (Usa esto como contexto. No repitas lo que ya analizaste a menos que el usuario lo pida.)
+"""
+
+        geo_memory_block = ""
+        if active_zone:
+            zone_name = active_zone.get("name") or active_zone.get("zone_name") or "zona activa"
+            geo_memory_block += f"""
+ZONA ACTIVA DE LA CONVERSACION:
+El usuario esta hablando de: {zone_name}
+BBox de esa zona: {active_zone.get("bbox")}
+Esta zona ya fue localizada y resaltada en el mapa.
+Si el usuario dice "esa zona", "esta zona", "alli", "ahi", "ese barrio" o "la zona anterior", se refiere a {zone_name}.
+Para reportes, conteos y analisis, restringe los datos a esta zona. No vuelvas a preguntar cual zona es.
+"""
+        if conversation_layers:
+            geo_memory_block += f"""
+CAPAS YA MENCIONADAS O CONFIRMADAS EN ESTA CONVERSACION:
+{chr(10).join(f"- {layer}" for layer in conversation_layers)}
+Si el usuario pide continuar o generar un reporte, prioriza estas capas y no agregues capas nuevas salvo que el usuario lo pida.
+"""
+        if applied_filters:
+            geo_memory_block += f"""
+FILTROS ACTIVOS DE LA CONVERSACION:
+{applied_filters}
 """
 
         prompt = f"""Eres GEOMAPS AI, un asistente experto en análisis territorial, cartografía y datos geoespaciales.
@@ -61,6 +87,7 @@ CONTEXTO DEL PROYECTO
   Capas DISPONIBLES con sus campos:
 {layers_str}
 {memory_block}
+{geo_memory_block}
 
 ══════════════════════════════════════════════
 REGLAS DE COMPORTAMIENTO
@@ -114,10 +141,12 @@ REGLAS DE COMPORTAMIENTO
   - El campo "value" en analytics_data será un índice secuencial, NO un conteo real.
   - Indica claramente: "Se muestran N registros de la capa X."
 
-[REGLA 8 — PDF/REPORTES]
-  Si analytics_data tiene pdf_export=True, el frontend genera el PDF automáticamente.
-  Menciona: "El sistema ha preparado un reporte PDF descargable."
-  NUNCA intentes generar el PDF tú.
+[REGLA 8 — REPORTES PDF PROFESIONALES]
+  Si el usuario solicita un reporte, informe o análisis detallado descargable:
+  - Responde normalmente con los datos y el análisis textual.
+  - Agrega al final: "¿Deseas generar un reporte PDF profesional con estos datos?"
+  - El frontend detectará analytics_data con report_available=True y mostrará el botón de reporte.
+  - NUNCA intentes generar el PDF tú. El motor de reportes lo hace automáticamente.
 
 [REGLA 9 — RUTAS ESPECÍFICAS]
   Para rutas con código (T102, X101, etc.): usa mostrar_ruta_animada.

@@ -21,4 +21,5 @@ pwdlib[argon2]==0.2.1
 email-validator>=2.0.0
 greenlet
 google-genai>=1.0.0
-
+matplotlib>=3.8.0
+typst==0.14.8

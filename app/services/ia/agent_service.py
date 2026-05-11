@@ -1,18 +1,17 @@
 import logging
 import json
 import time
-import asyncio
 from uuid import UUID
 from typing import List, Dict, Any, Optional, AsyncGenerator
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.infrastructure.ia_llm_client import LLMProviderFactory
 from app.services.ia.prompt_builder import PromptBuilder, extract_suggestions_from_text
 from app.services.ia.history_service import HistoryService
 from app.services.ia.tools import ToolsService
-from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig, StreamChunk
-from app.core.exceptions import LLMException, LLMRateLimitException
+from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
+from app.core.exceptions import LLMException
 
 GRAFICO_KEYWORDS = ["gráfico", "grafica", "chart", "visualiza", "barras", "pastel", "pie", "línea", "muéstrame en gráfico"]
 
@@ -219,13 +218,26 @@ class AgentService:
             )
 
         available_layers = await self._get_available_layers()
-        bbox = normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
+        geo_context = request.geo_context or {}
+        active_zone = geo_context.get("conversation_zone") if isinstance(geo_context, dict) else None
+        conversation_layers = geo_context.get("conversation_layers", []) if isinstance(geo_context, dict) else []
+        applied_filters = geo_context.get("applied_filters", []) if isinstance(geo_context, dict) else []
+        bbox = (
+            normalize_extent_to_bbox(active_zone.get("bbox")) if isinstance(active_zone, dict) else None
+        ) or normalize_extent_to_bbox(
+            geo_context.get("conversation_extent") if isinstance(geo_context, dict) else None
+        ) or (
+            normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
+        )
         system_prompt = self.prompt_builder.build_system_prompt(
             bbox=bbox,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
             user_name=user.full_name or user.email,
-            conversation_summary=conversation_summary
+            conversation_summary=conversation_summary,
+            active_zone=active_zone,
+            conversation_layers=conversation_layers,
+            applied_filters=applied_filters,
         )
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -263,10 +275,7 @@ class AgentService:
 
         messages.extend(sanitized_history)
         
-        # Preparar metadatos para el mensaje del usuario si hay adjuntos
         user_metadata = {}
-        if request.attachments:
-            user_metadata["attachments"] = request.attachments
 
         messages.append({"role": "user", "content": request.message, "metadata": user_metadata})
         
@@ -429,10 +438,7 @@ class AgentService:
                 "tool_call_id": msg.tool_call_id,
                 "metadata": msg.metadata
             })
-        # Preparar metadatos para el mensaje del usuario si hay adjuntos
         user_metadata = {}
-        if request.attachments:
-            user_metadata["attachments"] = request.attachments
 
         messages.append({"role": "user", "content": request.message, "metadata": user_metadata})
         
@@ -479,7 +485,7 @@ class AgentService:
                 break
             
             # Si hubo tool calls, procesarlas y reanudar
-            # 1. Guardar el mensaje del asistente con los tool_calls
+            # Guardar el mensaje del asistente con los tool_calls
             assistant_msg = {
                 "role": "assistant",
                 "content": full_content,
@@ -492,7 +498,7 @@ class AgentService:
             )
             full_content = "" # Limpiar para la siguiente vuelta si el modelo sigue hablando
 
-            # 2. Ejecutar herramientas y agregar respuestas
+            # Ejecutar herramientas y agregar respuestas
             for tcall in current_tool_calls:
                 func_name = tcall["function"]["name"]
                 func_args = json.loads(tcall["function"]["arguments"])

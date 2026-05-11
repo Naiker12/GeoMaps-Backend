@@ -1,11 +1,12 @@
 import logging
-from typing import Any, Dict, List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.api import deps
 from app.db.session import get_db
 from app.schemas.ia import IAModelConfig
 

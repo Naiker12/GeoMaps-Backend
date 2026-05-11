@@ -13,6 +13,18 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "GeoMaps - Visor Geográfico"
     DEBUG: bool = False
 
+    @field_validator("DEBUG", mode="before")
+    def parse_debug_mode(cls, v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "development", "dev", "local"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "production", "prod"}:
+                return False
+        return bool(v)
+
     # Seguridad
     SECRET_KEY: Optional[str] = None
     JWT_SECRET: Optional[str] = None

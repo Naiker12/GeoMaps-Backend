@@ -1,6 +1,8 @@
 from datetime import datetime
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, UUID4
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, UUID4
+
 
 class Message(BaseModel):
     role: str
@@ -9,21 +11,21 @@ class Message(BaseModel):
     tool_call_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
+
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str
     model: str = "gemini-2.0-flash"
     conversation_id: Optional[UUID4] = None
     context_mapa: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    geo_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
     historial: Optional[List[Message]] = Field(default_factory=list)
-    attachments: Optional[List[Dict[str, Any]]] = None # Listado de {mime_type, data}
+
 
 class DeleteConversationsRequest(BaseModel):
     conversation_ids: List[UUID4] = Field(default_factory=list)
 
-class ToolCall(BaseModel):
-    id: str
-    name: str
-    arguments: str
 
 class ChatResponse(BaseModel):
     message: str
@@ -40,18 +42,6 @@ class ChatResponse(BaseModel):
     suggestions: List[str] = Field(default_factory=list)
     pdf_export: bool = False
 
-class StreamChunk(BaseModel):
-    """Chunk individual enviado vía SSE."""
-    type: str  # "text" | "tool_status" | "done" | "error"
-    content: Optional[str] = None
-    tool_name: Optional[str] = None
-    map_actions: Optional[List[Dict[str, Any]]] = None
-    analytics_data: Optional[Dict[str, Any]] = None
-    conversation_id: Optional[UUID4] = None
-    model_used: Optional[str] = None
-    tokens_input: int = 0
-    tokens_output: int = 0
-    cost: float = 0.0
 
 class IAModelConfig(BaseModel):
     id: Optional[UUID4] = None
@@ -68,6 +58,7 @@ class IAModelConfig(BaseModel):
     class Config:
         from_attributes = True
 
+
 class Conversation(BaseModel):
     id: UUID4
     title: str
@@ -77,6 +68,7 @@ class Conversation(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class MessageRead(BaseModel):
     id: UUID4
@@ -89,12 +81,14 @@ class MessageRead(BaseModel):
     class Config:
         from_attributes = True
 
+
 class IASuggestion(BaseModel):
     id: UUID4
     text: str
     category: Optional[str] = None
     icon: Optional[str] = None
     is_active: bool = True
+
 
 class IAUsageResponse(BaseModel):
     current: int

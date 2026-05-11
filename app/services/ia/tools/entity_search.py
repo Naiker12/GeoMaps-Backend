@@ -131,7 +131,7 @@ class EntitySearchTools:
                     "data": table_data,
                     "total_records": len(table_data),
                     "display_limit": safe_limit,
-                    "pdf_export": True,
+                    "report_available": True,
                 },
                 "mensaje": f"Se encontraron {len(features)} resultados para la búsqueda '{query}'.",
             }
@@ -250,7 +250,7 @@ class EntitySearchTools:
                     "total_records": total_records,
                     "display_limit": safe_limit,
                     # Eliminamos dominant_participation ficticia para datos de listado
-                    "pdf_export": True,
+                    "report_available": True,
                 },
                 "map_actions": [
                     {

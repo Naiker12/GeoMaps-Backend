@@ -2,11 +2,6 @@
 Configura ciclo de vida, middleware CORS, excepciones y registro de rutas.
 """
 
-import sys
-import asyncio
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -158,6 +153,10 @@ app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=[
 # Rutas de IA
 from app.api.v1.endpoints import ia_router
 app.include_router(ia_router.router, prefix=f"{settings.API_V1_STR}/ia", tags=["Artificial Intelligence"])
+
+# Rutas de Reportes IA
+from app.api.v1.endpoints import report_router
+app.include_router(report_router.router, prefix=f"{settings.API_V1_STR}/reports", tags=["Reports"])
 
 
 @app.get("/health")
