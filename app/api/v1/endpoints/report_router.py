@@ -142,6 +142,7 @@ async def _generate_pdf_background(
             zone_name=request.zone_name,
             zone_geometry=request.zone_geometry,
             specific_layers=request.specific_layers,
+            map_screenshot=request.map_screenshot,
         )
 
         report_payload = jsonable_encoder(report_json)

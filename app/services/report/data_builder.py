@@ -51,6 +51,7 @@ class DataBuilder:
             title=title,
             subtitle=subtitle,
             user_id=metadata.get("user_id"),
+            map_screenshot=metadata.get("map_screenshot"),
             map_extent=metadata.get("bbox"),
             kpis=kpis,
             charts=charts,

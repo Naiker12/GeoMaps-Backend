@@ -57,6 +57,7 @@ class UniversalReportJSON(BaseModel):
     user_id: Optional[str] = None
 
     # Mapa
+    map_screenshot: Optional[str] = None
     map_legend: List[MapLegendItem] = Field(default_factory=list)
     map_extent: Optional[Dict[str, float]] = None  # {xmin, ymin, xmax, ymax}
 
@@ -82,6 +83,7 @@ class ReportRequest(BaseModel):
     message: str
     bbox: Optional[Dict[str, float]] = None  # {xmin, ymin, xmax, ymax}
     active_layers: List[str] = Field(default_factory=list)
+    map_screenshot: Optional[str] = None
     conversation_id: Optional[UUID] = None
     zone_name: Optional[str] = None
     zone_geometry: Optional[Dict[str, Any]] = None

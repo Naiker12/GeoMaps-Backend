@@ -54,6 +54,7 @@ class ReportEngine:
         zone_name: Optional[str] = None,
         zone_geometry: Optional[Dict[str, Any]] = None,
         specific_layers: Optional[List[str]] = None,
+        map_screenshot: Optional[str] = None,
     ) -> UniversalReportJSON:
         """
         Genera un reporte completo a partir de la consulta del usuario.
@@ -128,6 +129,7 @@ class ReportEngine:
                 "user_id": user_id,
                 "zone_name": detected_zone,
                 "zone_geometry": zone_geometry,
+                "map_screenshot": map_screenshot,
             }
         )
 
@@ -144,8 +146,8 @@ class ReportEngine:
     def _extract_zone_name(self, message: str) -> Optional[str]:
         normalized_message = self._normalize_text(message)
         patterns = [
-            r"(?:zona|barrio|sector|area)\s+(?:de\s+|del\s+|la\s+|el\s+)?([a-z0-9\s]+?)(?:\s+(?:con|en pdf|pdf|reporte|informe|analisis)|$)",
-            r"(?:reporte|informe|analisis)\s+(?:de\s+|del\s+|para\s+)?(?:la\s+zona\s+|el\s+barrio\s+|sector\s+)?([a-z0-9\s]+?)(?:\s+(?:con|en pdf|pdf)|$)",
+            r"(?:zona|barrio|sector|area)\s+(?:de\s+|del\s+|la\s+|el\s+)?([a-z0-9\s]+?)(?=\s+(?:y\s+(?:barrio|zona|sector|area)|vs|versus|contra|con|para|en pdf|pdf|reporte|informe|analisis|genera|generar)|$)",
+            r"(?:reporte|informe|analisis)\s+(?:de\s+|del\s+|para\s+)?(?:la\s+zona\s+|el\s+barrio\s+|sector\s+)?([a-z0-9\s]+?)(?=\s+(?:y\s+(?:barrio|zona|sector|area)|vs|versus|contra|con|para|en pdf|pdf)|$)",
         ]
         stop_words = {
             "actual", "visible", "esta zona", "esta area", "capas", "datos",

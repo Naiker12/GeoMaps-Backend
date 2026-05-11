@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import base64
+import binascii
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -28,7 +30,7 @@ class TechnicalAssetsService:
         try:
             assets["bar_chart"] = self._generate_bar_chart(chart_data, asset_dir / "bar_layers.png")
             assets["pie_chart"] = self._generate_pie_chart(chart_data, asset_dir / "pie_layers.png")
-            assets["map_reference"] = self._generate_map_reference(report_json, asset_dir / "map_reference.png")
+            assets["map_reference"] = self._generate_map_asset(report_json, asset_dir)
         except ImportError as exc:
             logger.warning("Matplotlib is not available; Typst report will render without generated charts: %s", exc)
         except Exception as exc:
@@ -89,6 +91,21 @@ class TechnicalAssetsService:
         fig.savefig(output_path, bbox_inches="tight")
         plt.close(fig)
         return str(output_path)
+
+    def _generate_map_asset(self, report_json: Dict[str, Any], asset_dir: Path) -> str:
+        screenshot = report_json.get("map_screenshot")
+        if isinstance(screenshot, str) and screenshot.startswith("data:image/"):
+            output_path = asset_dir / "map_screenshot.png"
+            try:
+                header, payload = screenshot.split(",", 1)
+                if "png" not in header.lower() and "jpeg" not in header.lower() and "jpg" not in header.lower():
+                    raise ValueError("Formato de captura no soportado")
+                output_path.write_bytes(base64.b64decode(payload, validate=True))
+                return str(output_path)
+            except (ValueError, binascii.Error) as exc:
+                logger.warning("Invalid map screenshot received; using generated reference map: %s", exc)
+
+        return self._generate_map_reference(report_json, asset_dir / "map_reference.png")
 
     def _generate_map_reference(self, report_json: Dict[str, Any], output_path: Path) -> str:
         plt = self._get_pyplot()
