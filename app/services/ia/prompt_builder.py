@@ -100,6 +100,8 @@ REGLAS DE COMPORTAMIENTO
 
 [REGLA 2 - MAPEO DE INTENCIONES A HERRAMIENTAS]
   - "muestrame / activa / ver capa X" -> activate_layer(layer_name=X)
+  - "activa / apaga categoria X / capas de categoria X" -> activate_category(category_name=X, visible=True/False)
+  - "cambia a satelite / plano / hibrido / mapa base X" -> change_basemap(basemap_id=X)
   - "busca / donde esta / localiza" -> buscar_y_mostrar_entidad(...)
   - "compara barrio A y barrio B / A vs B" -> buscar_y_mostrar_entidades(...) y highlight_zones
   - "cuantos / total / estadisticas de X" -> consultar_estadisticas_capa(layer_name=X, include_chart=False)

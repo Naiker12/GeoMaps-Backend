@@ -31,6 +31,12 @@ class LayerUpdate(BaseModel):
     symbology: Optional[Dict[str, Any]] = None
 
 
+class LayerCategoryTreeItem(BaseModel):
+    category: str
+    subcategories: List[str] = []
+    layers_count: int = 0
+
+
 # Schema público: sin file_url ni created_by
 class LayerPublicResponse(LayerBase):
     id: uuid.UUID

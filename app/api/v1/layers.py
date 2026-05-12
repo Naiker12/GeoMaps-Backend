@@ -18,6 +18,7 @@ from app.api.deps import get_current_active_user, get_current_user_optional, get
 from app.db.models.user import User
 from app.schemas.layer import (
     FeatureCollectionSchema,
+    LayerCategoryTreeItem,
     LayerCreate,
     LayerPublicResponse,
     LayerResponse,
@@ -75,9 +76,20 @@ async def get_categories(
     return await service.get_categories()
 
 
+@router.get("/categories/tree", response_model=List[LayerCategoryTreeItem])
+async def get_categories_tree(
+    db: AsyncSession = Depends(get_db),
+):
+    """Obtiene categorias, subcategorias y conteo de capas."""
+    service = LayerService(db)
+    return await service.get_categories_tree()
+
+
 @router.get("/", response_model=List[Union[LayerResponse, LayerPublicResponse]])
 async def list_layers(
     visibility: Optional[str] = None,
+    category: Optional[str] = None,
+    subcategory: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -85,7 +97,11 @@ async def list_layers(
         visibility = "PUBLIC"
 
     service = LayerService(db)
-    layers = await service.list_layers(visibility=visibility)
+    layers = await service.list_layers(
+        visibility=visibility,
+        category=category,
+        subcategory=subcategory,
+    )
 
     # Sin auth: serializar sin file_url
     if current_user is None:

@@ -1,0 +1,757 @@
+ANALISIS DETALLADO: CAPAS, CATEGORIAS, MAPA Y CHAT IA
+Proyecto backend: C:\Users\gomez\Downloads\GeoMaps-Backend
+Proyecto frontend revisado: D:\GeoMaps-frontend
+Fecha del analisis: 2026-05-12
+
+============================================================
+1. RESUMEN EJECUTIVO
+============================================================
+
+El sistema ya tiene una base funcional para administrar capas GIS:
+
+- El backend guarda capas en la tabla layers y geometria individual en layer_features.
+- Cada capa tiene name, description, category, subcategory, source, visibility, map_color, map_opacity, file_url, stats_config, feature_card_config y symbology.
+- La categoria y subcategoria no son tablas independientes. Hoy son campos de texto dentro de cada capa.
+- El admin ya permite crear una capa nueva y escribir/seleccionar categoria usando un Combobox.
+- El mapa publico agrupa automaticamente las capas por category en LayerContext.
+- El panel de capas ya muestra categorias colapsables, activa/desactiva capas, permite descargar recursos y abrir tabla de datos.
+- El chat IA puede activar capas, filtrar capas, mostrar marcadores, hacer zoom, animar rutas y resaltar zonas usando map_actions.
+- El selector de mapa base ya existe dentro del panel lateral de capas, pero no como cuadro pequeno flotante encima del mapa.
+
+La mejora que se quiere agregar encaja bien con la arquitectura actual, pero conviene ordenar tres frentes:
+
+1. Admin: mejorar el flujo de crear capa con categoria nueva o categoria existente, y manejar mejor subcategoria.
+2. Mapa: agregar un selector pequeno de mapas base flotante sobre el mapa, sin depender de abrir el panel de capas.
+3. Panel de capas: agregar filtros tipo select/combobox por categoria y subcategoria, para navegar capas con muchas categorias.
+
+============================================================
+2. BACKEND ACTUAL DE CAPAS
+============================================================
+
+Archivos principales:
+
+- app/db/models/layer.py
+- app/schemas/layer.py
+- app/api/v1/layers.py
+- app/services/layer_service.py
+- app/repositories/layer_repository.py
+
+Modelo actual:
+
+Tabla layers:
+
+- id: UUID
+- name: nombre de la capa
+- description: descripcion
+- category: categoria textual
+- subcategory: subcategoria textual
+- source: fuente de datos
+- geometry_type: tipo geometrico detectado
+- source_type: actualmente se guarda como FILE
+- visibility: PRIVATE, TEAM o PUBLIC
+- map_color: color base de mapa
+- map_opacity: opacidad
+- file_url: archivo original subido a storage
+- stats_config: configuracion JSONB para estadisticas
+- feature_card_config: configuracion JSONB para ficha de feature
+- symbology: configuracion JSONB de simbologia
+- created_by
+- created_at / updated_at
+
+Tabla layer_features:
+
+- id: BigInteger
+- layer_id: referencia a layers
+- display_name: nombre canonico generado por normalizador
+- properties: JSONB con atributos originales
+- geom: Geometry SRID 4326
+- created_at
+
+Endpoints actuales:
+
+- POST /api/v1/layers/
+  Crea una capa con archivo .geojson, .json o .zip.
+  Requiere usuario autenticado.
+
+- GET /api/v1/layers/categories
+  Devuelve categorias unicas tomadas desde layers.category.
+
+- GET /api/v1/layers/
+  Lista capas. Si no hay usuario autenticado, fuerza visibility=PUBLIC.
+
+- PATCH /api/v1/layers/{layer_id}
+  Actualiza metadatos, archivo y/o simbologia.
+
+- GET /api/v1/layers/{layer_id}/features
+  Devuelve GeoJSON FeatureCollection de la capa.
+
+- GET /api/v1/layers/features/properties
+  Devuelve propiedades combinadas de varias capas.
+
+- GET /api/v1/layers/features/{feature_id}
+  Detalle de una feature.
+
+- GET /api/v1/layers/{layer_id}/field-values
+  Valores unicos de un campo para simbologia categorizada.
+
+- GET /api/v1/layers/{layer_id}/field-stats
+  Estadisticas numericas para simbologia graduada.
+
+- DELETE /api/v1/layers/{layer_id}
+  Elimina capa, features y archivo del storage.
+
+Observaciones importantes:
+
+- No existe tabla categories ni layer_categories.
+- Crear una categoria nueva no requiere endpoint especial: basta con enviar category="Nueva Categoria" al crear o editar una capa.
+- La subcategoria funciona igual: es texto libre en layers.subcategory.
+- El endpoint /layers/categories solo devuelve categorias, no subcategorias.
+- Si se quiere filtrar por categoria desde backend, hoy habria que agregar query params porque list_layers solo filtra por visibility.
+- El repositorio tiene get_unique_categories(), pero no get_unique_subcategories() ni estructura categoria -> subcategorias.
+
+Riesgo detectado:
+
+- En app/repositories/layer_repository.py se usa delete(...) en delete_features_by_layer_id, pero en los imports visibles no aparece delete importado desde sqlalchemy. Si ese metodo se ejecuta al reemplazar archivo de una capa, puede fallar. Conviene revisar/corregir.
+
+============================================================
+3. ADMIN ACTUAL DE CAPAS
+============================================================
+
+Archivos principales frontend:
+
+- src/admin/pages/capas/pages.tsx
+- src/admin/components/capas/Capas-Modal.tsx
+- src/admin/components/capas/Capas-Form.tsx
+- src/admin/components/capas/Capas-Data-Table.tsx
+- src/admin/components/capas/Capas-Columns.tsx
+- src/services/Layer-Service.ts
+- src/core/types/Layer-Interface.ts
+
+Flujo actual para agregar capa:
+
+1. Admin entra a la pagina Capas.
+2. CapasPage carga layersService.getLayers().
+3. La tabla muestra las capas existentes.
+4. Boton "Agregar Capa" abre CapasModal.
+5. CapasModal renderiza CapasForm.
+6. CapasForm carga categorias con layersService.getCategories().
+7. El campo Categoria es Combobox:
+   - Permite seleccionar una categoria existente.
+   - Permite escribir una categoria nueva.
+   - Si el texto escrito no existe, muestra "Nueva: {valor}".
+8. El admin llena:
+   - Nombre
+   - Categoria
+   - Visibilidad
+   - Subcategoria opcional
+   - Fuente
+   - Color
+   - Opacidad
+   - Descripcion
+   - Archivo .zip o .geojson
+9. Al guardar, CapasPage llama:
+   - layersService.createLayer(data, files) si es nueva.
+   - layersService.updateLayer(id, data, files) si edita.
+10. Layer-Service arma FormData con category y subcategory como texto.
+11. Backend procesa archivo, crea metadata en layers e inserta features en layer_features.
+12. Admin refresca tabla con fetchCapas().
+
+Conclusion:
+
+El flujo de "crear categoria nueva al crear capa" ya esta parcialmente resuelto. No hay que crear primero una categoria. La categoria nace cuando una capa se guarda con ese texto.
+
+Lo que falta para que el flujo se sienta completo:
+
+- Mostrar categoria y subcategoria en la tabla de admin.
+- Agregar filtro por categoria en la tabla de admin.
+- Agregar filtro por subcategoria si aplica.
+- Normalizar el texto antes de guardar, por ejemplo trim y evitar categorias vacias con espacios.
+- Mejorar el campo subcategoria para que tambien pueda seleccionar existentes segun categoria.
+- Refrescar categories despues de crear/editar para que la nueva categoria aparezca sin recargar pagina.
+
+============================================================
+4. PROPUESTA: FLUJO ADMIN PARA CATEGORIA NUEVA O EXISTENTE
+============================================================
+
+Flujo recomendado para Nueva Capa:
+
+1. Admin hace click en "Agregar Capa".
+2. Se abre dialog/modal "Nueva Capa de Informacion".
+3. Campo Categoria:
+   - Tipo: Combobox.
+   - Opciones: categorias existentes desde /layers/categories.
+   - Permite escribir texto.
+   - Si escribe algo nuevo, mostrar "Crear categoria: X".
+4. Campo Subcategoria:
+   - Tipo recomendado: Combobox editable.
+   - Si ya se selecciono categoria, mostrar subcategorias existentes de esa categoria.
+   - Si no hay categoria, permitir escribir texto pero indicar que depende de la categoria.
+5. Admin carga archivo .zip o .geojson.
+6. Admin define visibilidad:
+   - PRIVATE: solo admin/autenticados.
+   - TEAM: equipo.
+   - PUBLIC: disponible para mapa publico.
+7. Admin define estilo inicial:
+   - Color
+   - Opacidad
+8. Al enviar:
+   - Frontend manda category y subcategory en FormData.
+   - Backend crea capa.
+   - Si category no existia, queda creada implicitamente porque existe una capa con esa category.
+9. Al terminar:
+   - Refrescar lista de capas.
+   - Refrescar lista de categorias.
+   - Mostrar toast claro: "Capa creada en categoria X".
+
+Flujo recomendado para capa en categoria existente:
+
+1. Admin abre "Agregar Capa".
+2. Selecciona una categoria ya existente del Combobox.
+3. Selecciona o escribe subcategoria.
+4. Guarda.
+5. La nueva capa aparece agrupada dentro de esa categoria en el mapa.
+
+Flujo recomendado para editar categoria/subcategoria de una capa:
+
+1. Admin abre menu de capa -> Editar Metadatos.
+2. Se abre el mismo formulario con initialData.
+3. Puede cambiar categoria y subcategoria.
+4. Al guardar, PATCH /layers/{id} actualiza los textos.
+5. En el mapa, cuando se refresque LayerContext, la capa cambia de grupo.
+
+Validaciones recomendadas:
+
+- category requerido en frontend y backend.
+- category.trim().length >= 1.
+- subcategory opcional, pero si se envia debe trim().
+- Limitar longitud segun backend: category max 100, subcategory max 120.
+- Evitar duplicados visuales por espacios/capitalizacion:
+  "Movilidad", " movilidad " y "MOVILIDAD" deberian tratarse con criterio.
+
+Opcion simple:
+
+- Guardar exactamente el label que escriba el usuario, pero trim.
+
+Opcion mas robusta:
+
+- Crear tabla categories con id, name, slug, parent_id.
+- Migrar layers.category y layers.subcategory a category_id/subcategory_id.
+- Esto da mas control, pero es mas trabajo.
+
+Recomendacion para esta etapa:
+
+Mantener category/subcategory como texto y mejorar UI + filtros. No meter tabla nueva todavia, salvo que se necesiten permisos, orden manual, iconos, descripcion o portada por categoria.
+
+============================================================
+5. ADMIN: FILTROS Y TABLA DE CAPAS
+============================================================
+
+Estado actual:
+
+- La tabla CapasDataTable solo filtra por nombre usando table.getColumn("name").
+- No se muestra columna category ni subcategory.
+- El buscador dice "Buscar capas por nombre o ID...", pero realmente filtra columna name.
+- Hay acciones: Ver en Mapa, Editar Metadatos, Editar Simbologia, Descargar, Eliminar.
+- "Ver en Mapa" aparece en el menu pero no tiene handler real conectado.
+
+Mejoras recomendadas:
+
+1. Agregar columnas:
+   - Categoria
+   - Subcategoria
+
+2. Agregar Select de categoria en toolbar:
+   - Valor "Todas"
+   - Lista de categorias desde data o desde /layers/categories
+   - Aplicar filtro sobre columna category
+
+3. Agregar Select de subcategoria:
+   - Valor "Todas"
+   - Depende de categoria seleccionada
+   - Si no hay categoria, mostrar todas las subcategorias disponibles
+
+4. Mejorar busqueda:
+   - Buscar por name, id, source, category, subcategory.
+   - Con TanStack puede usarse globalFilter o filtros por columnas combinados.
+
+5. Hacer funcional "Ver en Mapa":
+   - Navegar a /map.
+   - Activar esa capa por id o nombre.
+   - Abrir panel de capas o enfocar la capa.
+   - Opcional: guardar pendingLayerId en query param: /map?layer={id}
+
+6. Refrescar contexto de capas:
+   - Despues de crear/editar/eliminar, llamar fetchCapas() en admin.
+   - Si admin comparte LayerProvider, tambien llamar refreshLayers().
+
+============================================================
+6. MAPA PUBLICO: PANEL DE CAPAS
+============================================================
+
+Archivo principal:
+
+- src/features/map/components/Layer/Layer-Panel.tsx
+
+Estado actual:
+
+- El panel tiene buscador PanelSearch.
+- Incluye BasemapSwitcher dentro del panel.
+- Agrupa capas por categorias desde LayerContext.
+- Cada categoria muestra:
+  - titulo
+  - cantidad de capas
+  - cantidad activas
+  - botones TODO / NINGUNO al expandir
+- Cada capa permite:
+  - activar/desactivar
+  - descargar shapefile
+  - descargar XML
+  - descargar GeoJSON
+  - ver tabla de datos
+
+LayerContext:
+
+- src/store/Layer-Context.tsx
+
+Hace:
+
+1. Carga layersService.getLayers().
+2. Carga projectService.getPublic().
+3. Agrupa capas por layer.category o "General".
+4. Agrega categoria virtual "Modelos 3D".
+5. Guarda visible=false por defecto.
+6. Expone activeLayers.
+7. Cuando se activa una capa, descarga features si no estan en cache.
+8. Permite activar/desactivar por nombre para el chat IA.
+
+Limitacion actual:
+
+- No hay estructura visual de subcategorias dentro del panel.
+- El filtro de busqueda solo revisa nombre de capa y titulo de categoria.
+- Si hay muchas categorias, el usuario debe desplazarse bastante.
+- BasemapSwitcher esta dentro del panel de capas; si el panel esta cerrado, cambiar mapa base requiere abrirlo.
+
+Propuesta para panel de capas:
+
+1. Agregar Select/Combobox "Categoria":
+   - Todas las categorias
+   - Modelos 3D
+   - Categorias reales del backend
+
+2. Agregar Select "Subcategoria":
+   - Todas
+   - Valores encontrados en layers.subcategory de la categoria elegida
+
+3. Mantener buscador:
+   - Filtra dentro del resultado de categoria/subcategoria.
+
+4. Render esperado:
+   - Si categoria = Todas, mantener agrupacion por categoria.
+   - Si categoria = X, mostrar solo X y opcionalmente agrupar por subcategoria.
+
+5. Subcategorias:
+   - Opcion A: mostrar como texto dentro del LayerItem.
+   - Opcion B: crear segundo nivel colapsable Categoria -> Subcategoria -> Capas.
+   - Recomendacion: empezar con Opcion A + filtro; si hay muchas capas, pasar a Opcion B.
+
+============================================================
+7. MAPA PUBLICO: CUADRO PEQUENO DE MAPAS BASE
+============================================================
+
+Peticion:
+
+Agregar un cuadro pequeno en el mapa o arriba del mapa para que al tocarlo se puedan ver los diferentes mapas disponibles.
+
+Estado actual:
+
+- BasemapSwitcher existe dentro de Layer-Panel.
+- activeBaseMap y setActiveBaseMap viven en LayerContext.
+- enabledBasemaps tambien vive en LayerContext.
+- useMapInit escucha activeBaseMap y actualiza view.map.basemap con Basemap.fromId().
+- useMapLayers activa tilt/malla cuando el basemap contiene "3d".
+- SettingsPanel permite habilitar o deshabilitar motores 3D.
+
+Propuesta de componente:
+
+Crear:
+
+- src/features/map/components/Core/Basemap-Floating-Control.tsx
+
+Ubicacion:
+
+- Dentro de MapCanvas, despues del div ref={mapDiv}, como overlay absoluto.
+
+Posicion recomendada:
+
+- Desktop: top-4 right-4, debajo o separado de widgets ArcGIS.
+- Mobile: top-4 right-4 o bottom encima del boton IA, cuidando no tapar controles.
+
+Comportamiento:
+
+1. Estado cerrado:
+   - Boton cuadrado pequeno con icono Map o Globe.
+   - Muestra mini label del mapa actual, por ejemplo "Satelite".
+
+2. Al tocar/click:
+   - Abre popover/dropdown flotante.
+   - Lista mapas base disponibles:
+     - Satelite
+     - Plano
+     - Hibrido
+     - OSM 3D si esta habilitado
+     - Topo 3D si esta habilitado
+     - Streets 3D si esta habilitado
+     - Streets Dark 3D si esta habilitado
+     - Imagery 3D si esta habilitado
+
+3. Al elegir:
+   - llama setActiveBaseMap(id).
+   - cierra popover.
+   - useMapInit cambia el basemap sin recrear SceneView.
+
+4. Debe reutilizar misma lista que BasemapSwitcher.
+
+Recomendacion tecnica:
+
+- Extraer lista de basemaps a un helper unico:
+  src/features/map/utils/basemaps.ts
+
+Ejemplo de responsabilidades:
+
+- BASEMAP_OPTIONS: ids, labels, icon, es esencial o 3D.
+- getAvailableBasemaps(enabledBasemaps)
+- getArcGISBasemap(id)
+
+Esto elimina duplicacion entre:
+
+- Layer-Panel.tsx
+- use-map-init.ts
+- Cartagena-Map.tsx segun analisis previo
+
+Precauciones UI:
+
+- No ponerlo dentro de tarjeta grande.
+- Usar Popover o DropdownMenu existente.
+- z-index mayor que mapa: z-[1000] o parecido.
+- pointer-events-auto porque MapCanvas tiene overlays.
+- No tapar MapHoverTooltip, marcadores de IA ni boton IA mobile.
+
+============================================================
+8. CHAT IA Y DIALOGO CON EL MAPA
+============================================================
+
+Archivos frontend:
+
+- src/features/ia/components/ai-chat-panel.tsx
+- src/features/ia/hooks/use-ai-chat.ts
+- src/features/ia/utils/map-action-executor.ts
+- src/features/ia/types/ai-chat.types.ts
+
+Archivos backend:
+
+- app/api/v1/endpoints/ia_router.py
+- app/services/ia/agent_service.py
+- app/services/ia/tools_service.py
+- app/services/ia/tools/map_controls.py
+- app/services/ia/tools/entity_search.py
+- app/services/ia/tools/route_tools.py
+- app/services/ia/tools/zone_analysis.py
+- app/services/ia/tools/layer_stats.py
+
+Estado actual:
+
+- El chat envia contexto del mapa:
+  - extent
+  - view_type
+  - zoom
+  - center
+  - camera_tilt
+  - camera_heading
+  - layers activas
+- El backend puede devolver map_actions.
+- El frontend ejecuta acciones con executeMapActions().
+
+Acciones actuales:
+
+- show_markers
+- fly_to
+- ANIMATE_ROUTE
+- toggle_layer
+- filter_layer
+- highlight_feature reservado
+- highlight_zone
+- highlight_zones
+- switch_to_3d
+- switch_to_2d
+- set_camera
+
+Relacion con categorias:
+
+- El chat actualmente activa capas por nombre con setLayerVisibilityByName().
+- No hay accion directa "activar categoria".
+- Si se quiere que el usuario diga "activa toda la categoria movilidad", conviene agregar:
+  - Backend: herramienta que retorne map_action "toggle_category".
+  - Frontend: executeMapActions debe soportar toggle_category.
+  - LayerContext: agregar setCategoryVisibilityByName(categoryName, visible).
+
+Relacion con nuevo selector de mapas:
+
+- El chat ya puede cambiar 2D/3D con switch_to_3d / switch_to_2d, pero no necesariamente elegir basemap especifico.
+- Se puede agregar accion:
+  - map_action: "set_basemap"
+  - basemap_id: "satellite" | "streets-vector" | "hybrid" | "arcgis-osm-3d" ...
+- Frontend ejecuta setActiveBaseMap(basemap_id).
+
+Recomendacion:
+
+- No bloquear el selector visual por el chat. Ambos deben compartir LayerContext.
+- Si chat cambia mapa base, el cuadro flotante debe actualizarse automaticamente porque lee activeBaseMap.
+
+============================================================
+9. MAPA: CARGA DE CAPAS Y RENDIMIENTO
+============================================================
+
+Archivos:
+
+- src/features/map/hooks/use-map-layers.ts
+- src/store/Layer-Context.tsx
+
+Flujo actual:
+
+1. El usuario activa una capa.
+2. LayerContext incluye la capa en activeLayers.
+3. Si no hay features en cache, descarga /layers/{id}/features.
+4. useMapLayers convierte GeoJSON a Graphics.
+5. Crea FeatureLayer client-side.
+6. Aplica renderer segun symbology o estilo default.
+7. Agrega FeatureLayer al SceneView.
+
+Impacto de categorias:
+
+- Las categorias solo organizan UI. No cambian la carga tecnica.
+- Si el usuario activa "TODO" en una categoria grande, puede descargar muchas capas y muchas features.
+
+Recomendaciones:
+
+- Mantener "TODO" por categoria, pero considerar alerta si activa muchas capas.
+- Agregar conteo de features por capa en backend si se quiere avisar antes.
+- Para muchas features, considerar paginacion, vector tiles o FeatureServer en una etapa futura.
+
+============================================================
+10. BACKEND: CAMBIOS MINIMOS RECOMENDADOS
+============================================================
+
+Cambios minimos para soportar filtros y subcategorias:
+
+1. Agregar endpoint:
+
+GET /api/v1/layers/categories/tree
+
+Respuesta sugerida:
+
+[
+  {
+    "category": "Movilidad",
+    "subcategories": ["Rutas", "Paraderos"],
+    "layers_count": 8
+  }
+]
+
+2. Agregar query params en GET /layers/:
+
+- visibility
+- category
+- subcategory
+
+Ejemplo:
+
+GET /api/v1/layers/?visibility=PUBLIC&category=Movilidad&subcategory=Rutas
+
+3. Agregar metodo en LayerRepository:
+
+- get_categories_tree()
+- get_unique_subcategories(category: str | None)
+
+4. Normalizar entrada en create/update:
+
+- category = category.strip()
+- subcategory = subcategory.strip() si existe
+
+5. Corregir import faltante:
+
+- from sqlalchemy import delete
+
+Nota:
+
+Estos cambios no son obligatorios para que el frontend filtre, porque el frontend ya recibe todas las capas. Pero ayudan a escalabilidad y a formularios mas limpios.
+
+============================================================
+11. FRONTEND: CAMBIOS MINIMOS RECOMENDADOS
+============================================================
+
+Admin:
+
+1. Capas-Form.tsx:
+   - Mantener Combobox editable de categoria.
+   - Convertir subcategory a Combobox editable.
+   - Cargar subcategorias desde una estructura categoria -> subcategorias o derivarlas de capas existentes.
+   - Hacer trim antes de onSubmit.
+
+2. Capas-Data-Table.tsx:
+   - Agregar Select categoria.
+   - Agregar Select subcategoria.
+   - Mejorar busqueda global.
+
+3. Capas-Columns.tsx:
+   - Agregar columnas category y subcategory.
+   - Conectar "Ver en Mapa".
+
+Mapa:
+
+1. Crear Basemap-Floating-Control.tsx.
+2. Insertarlo en MapCanvas como overlay.
+3. Extraer opciones de basemap a helper compartido.
+4. Mantener BasemapSwitcher dentro del panel de capas o reemplazarlo por el nuevo control si se quiere evitar duplicidad.
+
+Panel de capas:
+
+1. Agregar Select categoria.
+2. Agregar Select subcategoria.
+3. Filtrar filteredCategories por esos estados.
+4. Mostrar subcategory en LayerItem debajo de source o como badge pequena.
+
+Chat IA:
+
+Opcional:
+
+1. Agregar map_action "set_basemap".
+2. Agregar map_action "toggle_category".
+3. Agregar acciones en executeMapActions.
+4. Agregar funciones correspondientes en LayerContext.
+
+============================================================
+12. ORDEN DE IMPLEMENTACION SUGERIDO
+============================================================
+
+Fase 1: UX sin tocar mucho backend
+
+1. Admin: mostrar category/subcategory en tabla.
+2. Admin: agregar filtros por categoria/subcategoria.
+3. Admin: mejorar subcategory como Combobox editable.
+4. Mapa: agregar select de categoria/subcategoria en LayerPanel.
+5. Mapa: agregar cuadro flotante de mapas base.
+
+Fase 2: Backend de soporte
+
+1. Agregar filtros category/subcategory a GET /layers/.
+2. Agregar endpoint categories/tree.
+3. Normalizar trim en create/update.
+4. Corregir import delete en layer_repository.py.
+
+Fase 3: IA y automatizacion
+
+1. Agregar set_basemap.
+2. Agregar toggle_category.
+3. Permitir prompts como:
+   - "Activa todas las capas de movilidad"
+   - "Cambia a satelite"
+   - "Muestrame mapas 3D"
+   - "Filtra capas de equipamientos"
+
+============================================================
+13. DECISION CLAVE: CATEGORIAS COMO TEXTO VS TABLA
+============================================================
+
+Mantener como texto conviene si:
+
+- Solo se necesita agrupar capas.
+- No se requiere ordenar categorias manualmente.
+- No se requieren iconos, permisos o descripcion por categoria.
+- El admin puede escribir categoria libremente.
+
+Crear tabla de categorias conviene si:
+
+- Se necesitan categorias administrables sin capas.
+- Se quieren iconos/colores por categoria.
+- Se necesita orden personalizado.
+- Se necesitan permisos por categoria.
+- Se quiere evitar duplicados de forma estricta.
+- Se requiere jerarquia real: categoria -> subcategoria -> capa.
+
+Recomendacion actual:
+
+Por el estado del proyecto, mantener texto y mejorar flujo. Es mas rapido, menos riesgoso y ya esta alineado con el backend y frontend existentes.
+
+============================================================
+14. RESULTADO ESPERADO PARA EL USUARIO FINAL
+============================================================
+
+Admin:
+
+- Puede crear una capa en una categoria existente.
+- Puede escribir una categoria nueva desde el mismo formulario.
+- Puede escribir o seleccionar subcategoria.
+- Ve en la tabla a que categoria/subcategoria pertenece cada capa.
+- Puede filtrar la tabla por categoria y subcategoria.
+- Puede mandar una capa al mapa desde el menu de acciones.
+
+Mapa:
+
+- El usuario tiene un cuadro pequeno siempre visible para cambiar mapa base.
+- Al tocar el cuadro ve Satelite, Plano, Hibrido y mapas 3D habilitados.
+- El panel de capas tiene filtros por categoria/subcategoria.
+- Las capas siguen agrupadas, pero son mas faciles de encontrar.
+
+Chat IA:
+
+- Sigue pudiendo activar capas, filtrar y mover el mapa.
+- Puede ampliarse para cambiar mapa base y activar categorias completas.
+
+============================================================
+15. ARCHIVOS A TOCAR CUANDO SE IMPLEMENTE
+============================================================
+
+Backend:
+
+- app/api/v1/layers.py
+- app/services/layer_service.py
+- app/repositories/layer_repository.py
+- app/schemas/layer.py
+
+Frontend admin:
+
+- D:\GeoMaps-frontend\src\admin\components\capas\Capas-Form.tsx
+- D:\GeoMaps-frontend\src\admin\components\capas\Capas-Data-Table.tsx
+- D:\GeoMaps-frontend\src\admin\components\capas\Capas-Columns.tsx
+- D:\GeoMaps-frontend\src\admin\pages\capas\pages.tsx
+- D:\GeoMaps-frontend\src\services\Layer-Service.ts
+
+Frontend mapa:
+
+- D:\GeoMaps-frontend\src\store\Layer-Context.tsx
+- D:\GeoMaps-frontend\src\features\map\components\Layer\Layer-Panel.tsx
+- D:\GeoMaps-frontend\src\features\map\components\Core\Map-Canvas.tsx
+- D:\GeoMaps-frontend\src\features\map\hooks\use-map-init.ts
+- D:\GeoMaps-frontend\src\features\map\hooks\use-map-layers.ts
+- Nuevo: D:\GeoMaps-frontend\src\features\map\components\Core\Basemap-Floating-Control.tsx
+- Nuevo recomendado: D:\GeoMaps-frontend\src\features\map\utils\basemaps.ts
+
+Frontend IA opcional:
+
+- D:\GeoMaps-frontend\src\features\ia\utils\map-action-executor.ts
+- D:\GeoMaps-frontend\src\features\ia\types\ai-chat.types.ts
+- D:\GeoMaps-frontend\src\features\ia\hooks\use-ai-chat.ts
+
+============================================================
+16. CONCLUSION
+============================================================
+
+La arquitectura actual soporta bien lo que se quiere agregar. La categoria nueva ya puede nacer desde el formulario de capa porque category es texto libre en layers. Lo mas importante ahora es mejorar la experiencia:
+
+- hacer visible categoria/subcategoria en admin,
+- filtrar por categoria/subcategoria,
+- mejorar subcategoria como selector editable,
+- agregar un selector flotante de mapas base en el mapa,
+- y mantener el panel de capas como catalogo ordenado.
+
+No recomiendo crear una tabla de categorias todavia si el objetivo inmediato es velocidad y bajo riesgo. Si mas adelante se quieren permisos, iconos, orden, descripcion o jerarquia formal, ahi si conviene migrar a categorias como entidad propia.

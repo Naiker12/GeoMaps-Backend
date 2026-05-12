@@ -6,7 +6,7 @@ import json
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import func, insert, select, text
+from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.layer import Layer, LayerFeature
@@ -43,7 +43,39 @@ class LayerRepository(BaseRepository[Layer]):
         """Obtiene el listado de categorías únicas registradas."""
         stmt = select(Layer.category).distinct().where(Layer.category.is_not(None)).order_by(Layer.category)
         result = await self.db.execute(stmt)
-        return [c for c in result.scalars().all()]
+        return [c for c in result.scalars().all() if c]
+
+    async def get_categories_tree(self) -> list[dict]:
+        """Agrupa categorias y subcategorias a partir de las capas existentes."""
+        stmt = (
+            select(Layer.category, Layer.subcategory, func.count(Layer.id).label("layers_count"))
+            .where(Layer.category.is_not(None))
+            .group_by(Layer.category, Layer.subcategory)
+            .order_by(Layer.category, Layer.subcategory)
+        )
+        result = await self.db.execute(stmt)
+
+        grouped: dict[str, dict] = {}
+        for category, subcategory, layers_count in result.all():
+            if not category:
+                continue
+
+            item = grouped.setdefault(
+                category,
+                {"category": category, "subcategories": set(), "layers_count": 0},
+            )
+            if subcategory:
+                item["subcategories"].add(subcategory)
+            item["layers_count"] += int(layers_count or 0)
+
+        return [
+            {
+                "category": item["category"],
+                "subcategories": sorted(item["subcategories"]),
+                "layers_count": item["layers_count"],
+            }
+            for item in grouped.values()
+        ]
 
     async def insert_features_bulk(self, layer_id: uuid.UUID, features: list[dict]):
         """Inserta features cartográficas en lotes para mayor rendimiento."""

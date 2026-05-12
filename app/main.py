@@ -14,7 +14,7 @@ ml_models = {}
 # Importación de Rutas Seguras
 from app.api.v1 import (
     auth_routes, layer_routes, 
-    download_routes, search_routes, api_keys
+    download_routes, search_routes, api_keys, ogc_routes
 )
 from app.api.v1.admin import router as admin_router
 from app.api.routes import project_routes
@@ -147,6 +147,7 @@ app.include_router(project_routes.router, prefix=f"{settings.API_V1_STR}/project
 app.include_router(layer_routes.router, prefix=f"{settings.API_V1_STR}/layers")
 app.include_router(download_routes.router, prefix=f"{settings.API_V1_STR}/resources")
 app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search")
+app.include_router(ogc_routes.router, prefix=f"{settings.API_V1_STR}/ogc", tags=["OGC"])
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
 

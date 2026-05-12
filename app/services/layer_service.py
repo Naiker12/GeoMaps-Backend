@@ -21,7 +21,12 @@ class LayerService:
         self.repository = LayerRepository(db)
         self.geo_service = GeoService()
 
-    async def list_layers(self, visibility: str | None = None) -> Sequence[Layer]:
+    async def list_layers(
+        self,
+        visibility: str | None = None,
+        category: str | None = None,
+        subcategory: str | None = None,
+    ) -> Sequence[Layer]:
         from app.db.models.layer import VisibilityEnum
 
         filters = {}
@@ -30,6 +35,10 @@ class LayerService:
                 filters["visibility"] = VisibilityEnum(visibility.upper())
             except Exception:
                 filters["visibility"] = visibility
+        if category:
+            filters["category"] = self._clean_text(category)
+        if subcategory:
+            filters["subcategory"] = self._clean_text(subcategory)
 
         return await self.repository.get_multi(**filters)
 
@@ -45,6 +54,7 @@ class LayerService:
             raise ValueError("Se requiere un archivo (.geojson o .zip)")
 
         try:
+            layer_in = self._normalize_layer_input(layer_in)
             geojson_data = await self._parse_file(file)
 
             geom_type = await self.geo_service.get_geometry_type(geojson_data)
@@ -116,6 +126,8 @@ class LayerService:
         else:
             update_data = layer_in.model_dump(exclude_unset=True)
 
+        update_data = self._normalize_update_data(update_data)
+
         if file:
             from app.services.storage_service import storage_service
 
@@ -176,3 +188,25 @@ class LayerService:
     async def get_categories(self) -> list[str]:
         """Obtiene el listado de categorías únicas."""
         return await self.repository.get_unique_categories()
+
+    async def get_categories_tree(self) -> list[dict]:
+        """Obtiene categorias con subcategorias y conteo de capas."""
+        return await self.repository.get_categories_tree()
+
+    def _clean_text(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    def _normalize_layer_input(self, layer_in: LayerCreate) -> LayerCreate:
+        data = layer_in.model_dump()
+        normalized = self._normalize_update_data(data)
+        return LayerCreate(**normalized)
+
+    def _normalize_update_data(self, data: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(data)
+        for field in ("name", "description", "category", "subcategory", "source", "visibility"):
+            if field in normalized:
+                normalized[field] = self._clean_text(normalized[field])
+        return normalized

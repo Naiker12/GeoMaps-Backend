@@ -117,6 +117,47 @@ class ToolsService(
             {
                 "type": "function",
                 "function": {
+                    "name": "activate_category",
+                    "description": "Activa o desactiva todas las capas de una categoria del mapa, por ejemplo Educacion, Transporte o Barrios.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "category_name": {"type": "string", "description": "Nombre de la categoria."},
+                            "visible": {"type": "boolean", "description": "True para mostrar, False para ocultar."},
+                        },
+                        "required": ["category_name", "visible"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "change_basemap",
+                    "description": "Cambia el mapa base visible. Usa satellite para satelite, streets-vector para plano, hybrid para hibrido, o mapas 3D disponibles.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "basemap_id": {
+                                "type": "string",
+                                "enum": [
+                                    "satellite",
+                                    "streets-vector",
+                                    "hybrid",
+                                    "arcgis-osm-3d",
+                                    "arcgis-topographic-3d",
+                                    "arcgis-streets-3d",
+                                    "arcgis-streets-dark-3d",
+                                    "arcgis-imagery-3d",
+                                ],
+                            },
+                        },
+                        "required": ["basemap_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "buscar_y_mostrar_entidad",
                     "description": "Localiza, resalta y hace zoom a un elemento especifico de una capa.",
                     "parameters": {

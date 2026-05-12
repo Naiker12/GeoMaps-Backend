@@ -735,6 +735,8 @@ class AgentService:
             elif name == "analizar_zona_extent": return await self.tools_service.analizar_zona_extent(**args)
             elif name == "consultar_estadisticas_capa": return await self.tools_service.consultar_estadisticas_capa(**args)
             elif name == "activate_layer": return await self.tools_service.activate_layer(**args)
+            elif name == "activate_category": return await self.tools_service.activate_category(**args)
+            elif name == "change_basemap": return await self.tools_service.change_basemap(**args)
             elif name == "zoom_to_location": return await self.tools_service.zoom_to_location(**args)
             elif name == "buscar_y_mostrar_entidad": return await self.tools_service.buscar_y_mostrar_entidad(**args)
             elif name == "buscar_y_mostrar_entidades": return await self.tools_service.buscar_y_mostrar_entidades(**args)
