@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Any
@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.services.ia.agent_service import AgentService
 from app.services.ia.history_service import HistoryService
 from app.services.ia.usage_service import UsageService
+from app.services.ia.stt_service import stt_service
 from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest
 from app.api.deps import get_current_active_user
 from app.db.models.user import User
@@ -151,3 +152,23 @@ async def get_ia_usage(
     """Obtiene el consumo actual de mensajes del usuario."""
     usage_service = UsageService(db)
     return await usage_service.get_user_usage(current_user.id)
+
+
+@router.post("/transcribe")
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    language: str = Form("es-CO"),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Transcribe audio from browsers without native SpeechRecognition support."""
+    try:
+        audio_bytes = await audio.read()
+        text = await stt_service.transcribe(
+            audio_bytes,
+            language=language,
+            mime_type=audio.content_type,
+        )
+        return {"text": text, "language": language}
+    except Exception as e:
+        logger.error("Error transcribiendo audio: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="No se pudo transcribir el audio.")

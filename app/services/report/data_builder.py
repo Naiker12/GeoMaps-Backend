@@ -33,9 +33,13 @@ class DataBuilder:
         # Título y subtítulo según tipo
         title, subtitle = self._get_title(report_type, spatial_data)
         zone_name = metadata.get("zone_name")
+        zone_names = metadata.get("zone_names") or ([zone_name] if zone_name else [])
         if zone_name:
             title = f"Reporte Geoespacial - {zone_name}"
             subtitle = f"Analisis restringido a la zona {zone_name}"
+        if report_type == "comparison_report" and zone_names:
+            title = f"Reporte Comparativo - {' vs '.join(zone_names[:3])}"
+            subtitle = f"Comparacion territorial entre {len(zone_names)} zonas"
 
         # KPIs según tipo
         kpis = self._build_kpis(report_type, spatial_data)
@@ -52,7 +56,10 @@ class DataBuilder:
             subtitle=subtitle,
             user_id=metadata.get("user_id"),
             map_screenshot=metadata.get("map_screenshot"),
+            map_screenshots=metadata.get("map_screenshots") or [],
             map_extent=metadata.get("bbox"),
+            zones=zone_names,
+            layers=metadata.get("layers") or [],
             kpis=kpis,
             charts=charts,
             indicator_table=indicator_table,
@@ -65,6 +72,8 @@ class DataBuilder:
     # ── Títulos ────────────────────────────────────
 
     def _get_title(self, report_type: str, data: Dict[str, Any]) -> tuple[str, str]:
+        if report_type == "comparison_report":
+            return "Reporte Comparativo Territorial", "Comparacion multi-zona del area seleccionada"
         titles = {
             "cadastral_report": (
                 "Análisis Catastral Territorial",
@@ -177,11 +186,15 @@ class DataBuilder:
     def _build_general_kpis(self, data: Dict[str, Any]) -> List[KPIItem]:
         layers = data.get("layers_summary", [])
         total_features = sum(l.get("count", 0) for l in layers)
+        zones = data.get("comparison_zones", [])
 
         kpis = [
             KPIItem(label="Capas Disponibles", value=len(layers), color="blue"),
             KPIItem(label="Total Elementos", value=total_features, color="green"),
         ]
+
+        if zones:
+            kpis.insert(0, KPIItem(label="Zonas Comparadas", value=len(zones), color="teal"))
 
         if layers:
             kpis.append(KPIItem(
@@ -244,6 +257,20 @@ class DataBuilder:
                 ))
 
         else:
+            zones = data.get("comparison_zones", [])
+            if zones:
+                charts.append(ChartDefinition(
+                    type="bar",
+                    title="Elementos por Zona Comparada",
+                    data=[
+                        {"name": item.get("name", "Zona"), "value": item.get("feature_count", 0)}
+                        for item in zones
+                    ],
+                    x_key="name",
+                    y_key="value",
+                    color="#1A56DB",
+                ))
+
             layers = data.get("layers_summary", [])
             if layers:
                 charts.append(ChartDefinition(
@@ -285,6 +312,10 @@ class DataBuilder:
             rows.append(TableRow(label="Metodología", value=risk.get("methodology", "Heurística")))
 
         else:
+            zones = data.get("comparison_zones", [])
+            for zone in zones[:8]:
+                rows.append(TableRow(label=f"Zona: {zone.get('name')}", value=zone.get("feature_count", 0)))
+
             layers = data.get("layers_summary", [])
             for layer in layers[:8]:
                 rows.append(TableRow(label=layer["name"], value=layer["count"]))

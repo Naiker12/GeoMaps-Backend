@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 # Tipos de reporte soportados
 REPORT_TYPES = {
+    "comparison_report": {
+        "keywords": ["compara", "comparar", "comparacion", "comparación", "versus", "vs", "diferencia", "contrastar"],
+        "description": "Comparacion territorial entre dos o mas barrios, zonas o sectores"
+    },
     "cadastral_report": {
         "keywords": ["catastral", "predio", "lote", "propiedad", "parcela", "terreno", "avalúo", "inmueble"],
         "description": "Análisis de predios, propiedades y distribución catastral"
@@ -34,9 +38,17 @@ class IntentClassifier:
     Usa primero una heurística de keywords y, si no es concluyente, el LLM.
     """
 
-    def classify_by_keywords(self, message: str, active_layers: List[str]) -> Optional[Dict[str, Any]]:
+    def classify_by_keywords(self, message: str, active_layers: List[str], zone_names: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """Clasificación rápida por keywords sin llamar al LLM."""
         msg_lower = message.lower()
+        zone_names = zone_names or []
+
+        if len(zone_names) >= 2 and any(kw in msg_lower for kw in REPORT_TYPES["comparison_report"]["keywords"]):
+            return {
+                "type": "comparison_report",
+                "confidence": 0.95,
+                "method": "keywords_comparison"
+            }
 
         # Verificar si el mensaje pide un reporte
         report_intent = any(kw in msg_lower for kw in [
@@ -85,6 +97,7 @@ class IntentClassifier:
         self,
         message: str,
         active_layers: List[str],
+        zone_names: Optional[List[str]] = None,
         model_id: str = "gemini-2.0-flash"
     ) -> Dict[str, Any]:
         """Clasificación precisa usando el LLM."""
@@ -99,6 +112,7 @@ class IntentClassifier:
 {types_desc}
 
 Capas activas en el mapa del usuario: {', '.join(active_layers) if active_layers else 'Ninguna'}
+Zonas detectadas: {', '.join(zone_names or []) if zone_names else 'Ninguna'}
 
 Mensaje del usuario: "{message}"
 
@@ -125,18 +139,18 @@ Responde SOLO con JSON (sin markdown):
 
         return {"type": "general_report", "confidence": 0.3, "method": "fallback"}
 
-    async def classify(self, message: str, active_layers: List[str]) -> Dict[str, Any]:
+    async def classify(self, message: str, active_layers: List[str], zone_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Clasificación combinada: intenta keywords primero, LLM si no es concluyente.
         """
         # Intento rápido por keywords
-        result = self.classify_by_keywords(message, active_layers)
+        result = self.classify_by_keywords(message, active_layers, zone_names)
 
         if result and result["confidence"] >= 0.6:
             return result
 
         # Si keywords no fue concluyente, usar LLM
-        llm_result = await self.classify_with_llm(message, active_layers)
+        llm_result = await self.classify_with_llm(message, active_layers, zone_names)
 
         # Combinar confianza si keywords dio algo
         if result and llm_result["type"] == result["type"]:

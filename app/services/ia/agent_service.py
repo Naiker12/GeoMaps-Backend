@@ -10,8 +10,17 @@ from app.infrastructure.ia_llm_client import LLMProviderFactory
 from app.services.ia.prompt_builder import PromptBuilder, extract_suggestions_from_text
 from app.services.ia.history_service import HistoryService
 from app.services.ia.tools import ToolsService
+from app.services.ia.zone_extractor import extract_zone_names
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
 from app.core.exceptions import LLMException
+
+COMPARISON_KEYWORDS = ["compara", "comparar", "comparacion", "comparación", " vs ", " versus ", "diferencia", "diferencias"]
+EXPLICIT_STATS_KEYWORDS = [
+    "grafica", "gráfico", "grafico", "estadistica", "estadísticas",
+    "distribucion", "distribución", "puestos", "votacion", "votación",
+    "colegio", "educacion", "educación", "institucion", "institución",
+    "paradero", "ruta",
+]
 
 GRAFICO_KEYWORDS = ["gráfico", "grafica", "chart", "visualiza", "barras", "pastel", "pie", "línea", "muéstrame en gráfico"]
 
@@ -21,6 +30,23 @@ def needs_chart_clarification(message: str) -> bool:
     has_chart_intent = any(kw in msg_lower for kw in GRAFICO_KEYWORDS)
     chart_prefs_complete = "barras" in msg_lower or "pastel" in msg_lower or "línea" in msg_lower or "pie" in msg_lower
     return has_chart_intent and not chart_prefs_complete
+
+def is_comparison_request(message: str) -> bool:
+    msg_lower = f" {message.lower()} "
+    return any(keyword in msg_lower for keyword in COMPARISON_KEYWORDS)
+
+def should_expose_tool_visual(message: str, layer_name: Optional[str], tool_name: str) -> bool:
+    msg_lower = f" {message.lower()} "
+    layer_lower = (layer_name or "").lower()
+    if not is_comparison_request(message):
+        return True
+    if tool_name not in {"consultar_estadisticas_capa", "consultar_datos_tabla"}:
+        return True
+    if any(keyword in msg_lower for keyword in EXPLICIT_STATS_KEYWORDS):
+        return True
+    if layer_lower and layer_lower in msg_lower:
+        return True
+    return False
 
 def normalize_extent_to_bbox(extent: Any) -> Optional[List[float]]:
     """Convierte objetos de extensión de ArcGIS serializados por el frontend en una lista bbox [xmin, ymin, xmax, ymax]."""
@@ -35,6 +61,15 @@ def normalize_extent_to_bbox(extent: Any) -> Optional[List[float]]:
     return None
 
 logger = logging.getLogger(__name__)
+
+
+def _pick_prop(props: Dict[str, Any], tokens: List[str]) -> str:
+    for key, value in (props or {}).items():
+        normalized_key = str(key).lower()
+        if any(token in normalized_key for token in tokens):
+            if value not in (None, ""):
+                return str(value)
+    return "No disponible con las capas actuales"
 
 class AgentService:
     def __init__(self, db: AsyncSession, model_config: Optional[IAModelConfig] = None):
@@ -159,6 +194,135 @@ class AgentService:
             logger.error(f"Error cargando metadatos de capas: {e}")
             return []
 
+    async def _find_barrio_feature(self, zone_name: str) -> Optional[Dict[str, Any]]:
+        stmt = text("""
+            SELECT
+                l.name AS layer_name,
+                lf.properties AS properties,
+                ST_AsGeoJSON(lf.geom) AS geom
+            FROM public.layers l
+            JOIN public.layer_features lf ON l.id = lf.layer_id
+            WHERE l.visibility != 'PRIVATE'
+              AND (
+                unaccent(LOWER(l.name)) LIKE '%barrio%'
+                OR unaccent(LOWER(l.name)) LIKE '%sector%'
+                OR unaccent(LOWER(l.name)) LIKE '%zona%'
+              )
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_each_text(lf.properties) AS kv(key, value)
+                WHERE unaccent(LOWER(kv.value)) ILIKE unaccent(LOWER(:zone))
+              )
+            ORDER BY
+              CASE
+                WHEN unaccent(LOWER(l.name)) LIKE '%barrio%' THEN 0
+                WHEN unaccent(LOWER(l.name)) LIKE '%sector%' THEN 1
+                ELSE 2
+              END
+            LIMIT 1
+        """)
+        result = await self.db.execute(stmt, {"zone": f"%{zone_name}%"})
+        row = result.mappings().one_or_none()
+        if not row:
+            return None
+        return {
+            "name": zone_name,
+            "layer_name": str(row["layer_name"]),
+            "properties": row["properties"] or {},
+            "geometry": json.loads(row["geom"]) if row["geom"] else None,
+        }
+
+    async def _try_fast_zone_comparison(
+        self,
+        request: ChatRequest,
+        conv_id: UUID,
+        model_name: str,
+        start_time: float,
+    ) -> Optional[ChatResponse]:
+        if not is_comparison_request(request.message):
+            return None
+
+        zones = extract_zone_names(request.message)
+        if len(zones) < 2:
+            return None
+
+        found = []
+        missing = []
+        for zone in zones[:4]:
+            feature = await self._find_barrio_feature(zone)
+            if feature:
+                found.append(feature)
+            else:
+                missing.append(zone)
+
+        if len(found) < 2:
+            return None
+
+        map_actions = [{
+            "map_action": "highlight_zones",
+            "layer_name": found[0]["layer_name"],
+            "zones": [
+                {
+                    "name": item["name"],
+                    "geometry": item["geometry"],
+                    "properties": item["properties"],
+                }
+                for item in found
+            ],
+        }]
+
+        rows = [
+            ("Capa delimitadora", [item["layer_name"] for item in found]),
+            ("Localidad", [_pick_prop(item["properties"], ["localidad", "locali"]) for item in found]),
+            ("Unidad Comunera / UCG", [_pick_prop(item["properties"], ["ucg", "comuna", "comuner"]) for item in found]),
+            ("Área", [_pick_prop(item["properties"], ["area", "hect", "superficie"]) for item in found]),
+            ("Perímetro", [_pick_prop(item["properties"], ["perimet", "perímet"]) for item in found]),
+        ]
+
+        header = "| Variable | " + " | ".join(item["name"] for item in found) + " |"
+        separator = "|---|" + "|".join("---" for _ in found) + "|"
+        table_lines = [header, separator]
+        for label, values in rows:
+            table_lines.append("| " + label + " | " + " | ".join(values) + " |")
+
+        limitations = []
+        if missing:
+            limitations.append(f"No encontré estas zonas en la capa de barrios: {', '.join(missing)}.")
+        limitations.append(
+            "No se calcularon capas temáticas adicionales porque la solicitud fue una comparación general de barrios; "
+            "si quieres variables concretas como votación, educación, paraderos o rutas, puedo compararlas por separado."
+        )
+
+        message = (
+            f"He localizado y resaltado {', '.join(item['name'] for item in found)} con colores distintos.\n\n"
+            "### Tabla comparativa\n"
+            + "\n".join(table_lines)
+            + "\n\n### Limitaciones\n"
+            + "\n".join(f"- {item}" for item in limitations)
+        )
+
+        await self.history_service.save_message(conv_id, "user", request.message)
+        await self.history_service.save_message(
+            conv_id,
+            "assistant",
+            message,
+            metadata={"map_actions": map_actions, "fast_path": "zone_comparison"},
+        )
+
+        return ChatResponse(
+            message=message,
+            conversation_id=conv_id,
+            model_used=model_name,
+            latency_ms=int((time.time() - start_time) * 1000),
+            tools_called=["fast_zone_comparison"],
+            map_actions=map_actions,
+            suggestions=[
+                "Comparar paraderos entre estos barrios",
+                "Generar reporte PDF comparativo",
+                "Comparar instituciones educativas",
+            ],
+        )
+
     async def chat(self, request: ChatRequest, user: Any) -> ChatResponse:
         start_time = time.time()
         
@@ -183,6 +347,15 @@ class AgentService:
                 title=request.message[:50] + "...", 
                 model_id=model_config.model_id
             )
+
+        fast_response = await self._try_fast_zone_comparison(
+            request,
+            conv_id,
+            model_config.name,
+            start_time,
+        )
+        if fast_response:
+            return fast_response
 
         history = await self.history_service.get_trimmed_history(conv_id, user.id, max_messages=10)
         conversation_summary = await self.history_service.get_conversation_summary(conv_id)
@@ -332,14 +505,20 @@ class AgentService:
                         "success": bool(isinstance(tool_result, dict) and tool_result.get("success", True)),
                     })
                     
+                    expose_tool_visual = should_expose_tool_visual(
+                        request.message,
+                        func_args.get("layer_name") if isinstance(func_args, dict) else None,
+                        func_name,
+                    )
+
                     if isinstance(tool_result, dict):
-                        if tool_result.get("map_action"): map_actions.append(tool_result)
-                        if tool_result.get("map_actions"):
+                        if expose_tool_visual and tool_result.get("map_action"): map_actions.append(tool_result)
+                        if expose_tool_visual and tool_result.get("map_actions"):
                             for action in tool_result["map_actions"]:
                                 if "type" in action and "map_action" not in action:
                                     action["map_action"] = action.pop("type")
                                 map_actions.append(action)
-                        if tool_result.get("analytics_data"): analytics_data = tool_result.get("analytics_data")
+                        if expose_tool_visual and tool_result.get("analytics_data"): analytics_data = tool_result.get("analytics_data")
 
                     messages.append({
                         "role": "tool",
@@ -505,10 +684,16 @@ class AgentService:
                 
                 tool_result = await self._execute_tool(func_name, func_args)
                 
+                expose_tool_visual = should_expose_tool_visual(
+                    request.message,
+                    func_args.get("layer_name") if isinstance(func_args, dict) else None,
+                    func_name,
+                )
+
                 if isinstance(tool_result, dict):
-                    if tool_result.get("map_action"): map_actions.append(tool_result)
-                    if tool_result.get("map_actions"): map_actions.extend(tool_result["map_actions"])
-                    if tool_result.get("analytics_data"): analytics_data = tool_result.get("analytics_data")
+                    if expose_tool_visual and tool_result.get("map_action"): map_actions.append(tool_result)
+                    if expose_tool_visual and tool_result.get("map_actions"): map_actions.extend(tool_result["map_actions"])
+                    if expose_tool_visual and tool_result.get("analytics_data"): analytics_data = tool_result.get("analytics_data")
 
                 tool_msg = {
                     "role": "tool",
@@ -552,6 +737,7 @@ class AgentService:
             elif name == "activate_layer": return await self.tools_service.activate_layer(**args)
             elif name == "zoom_to_location": return await self.tools_service.zoom_to_location(**args)
             elif name == "buscar_y_mostrar_entidad": return await self.tools_service.buscar_y_mostrar_entidad(**args)
+            elif name == "buscar_y_mostrar_entidades": return await self.tools_service.buscar_y_mostrar_entidades(**args)
             elif name == "mostrar_ruta_animada": return await self.tools_service.mostrar_ruta_animada(**args)
             elif name == "listar_campos_capa": return await self.tools_service.listar_campos_capa(**args)
             elif name == "consultar_datos_tabla": return await self.tools_service.consultar_datos_tabla(**args)

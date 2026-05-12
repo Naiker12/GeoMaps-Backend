@@ -30,7 +30,7 @@ class TechnicalAssetsService:
         try:
             assets["bar_chart"] = self._generate_bar_chart(chart_data, asset_dir / "bar_layers.png")
             assets["pie_chart"] = self._generate_pie_chart(chart_data, asset_dir / "pie_layers.png")
-            assets["map_reference"] = self._generate_map_asset(report_json, asset_dir)
+            assets.update(self._generate_map_assets(report_json, asset_dir))
         except ImportError as exc:
             logger.warning("Matplotlib is not available; Typst report will render without generated charts: %s", exc)
         except Exception as exc:
@@ -92,20 +92,42 @@ class TechnicalAssetsService:
         plt.close(fig)
         return str(output_path)
 
+    def _generate_map_assets(self, report_json: Dict[str, Any], asset_dir: Path) -> Dict[str, str]:
+        assets: Dict[str, str] = {}
+        screenshots = report_json.get("map_screenshots") or []
+        for index, item in enumerate(screenshots[:4]):
+            data_url = item.get("data") if isinstance(item, dict) else None
+            label = item.get("label", f"Mapa {index + 1}") if isinstance(item, dict) else f"Mapa {index + 1}"
+            path = self._write_data_url_image(data_url, asset_dir / f"map_{index + 1}.png")
+            if path:
+                key = "map_reference" if index == 0 else f"map_reference_{index + 1}"
+                assets[key] = path
+                assets[f"{key}_label"] = str(label)
+
+        if "map_reference" not in assets:
+            assets["map_reference"] = self._generate_map_asset(report_json, asset_dir)
+        return assets
+
     def _generate_map_asset(self, report_json: Dict[str, Any], asset_dir: Path) -> str:
         screenshot = report_json.get("map_screenshot")
-        if isinstance(screenshot, str) and screenshot.startswith("data:image/"):
-            output_path = asset_dir / "map_screenshot.png"
-            try:
-                header, payload = screenshot.split(",", 1)
-                if "png" not in header.lower() and "jpeg" not in header.lower() and "jpg" not in header.lower():
-                    raise ValueError("Formato de captura no soportado")
-                output_path.write_bytes(base64.b64decode(payload, validate=True))
-                return str(output_path)
-            except (ValueError, binascii.Error) as exc:
-                logger.warning("Invalid map screenshot received; using generated reference map: %s", exc)
+        path = self._write_data_url_image(screenshot, asset_dir / "map_screenshot.png")
+        if path:
+            return path
 
         return self._generate_map_reference(report_json, asset_dir / "map_reference.png")
+
+    def _write_data_url_image(self, data_url: Any, output_path: Path) -> str | None:
+        if not isinstance(data_url, str) or not data_url.startswith("data:image/"):
+            return None
+        try:
+            header, payload = data_url.split(",", 1)
+            if "png" not in header.lower() and "jpeg" not in header.lower() and "jpg" not in header.lower():
+                raise ValueError("Formato de captura no soportado")
+            output_path.write_bytes(base64.b64decode(payload, validate=True))
+            return str(output_path)
+        except (ValueError, binascii.Error) as exc:
+            logger.warning("Invalid map screenshot received; using generated reference map: %s", exc)
+            return None
 
     def _generate_map_reference(self, report_json: Dict[str, Any], output_path: Path) -> str:
         plt = self._get_pyplot()

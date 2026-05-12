@@ -51,6 +51,10 @@ async def generate_report(
         "status": "processing",
         "progress": 10,
         "type": "custom",
+        "zones": request.zone_names or ([request.zone_name] if request.zone_name else []),
+        "layers": request.specific_layers or request.active_layers,
+        "kpis": [],
+        "progress_message": "Preparando alcance del reporte...",
         "created_at": datetime.now().isoformat(),
     }
     await redis_client.setex(f"report:{report_id}", REPORT_TTL, json.dumps(report_status))
@@ -86,6 +90,10 @@ async def get_report_status(report_id: str):
         download_url=f"/api/v1/reports/download/{report_id}" if info["status"] == "completed" else None,
         error_message=info.get("error"),
         renderer=info.get("renderer"),
+        zones=info.get("zones", []),
+        layers=info.get("layers", []),
+        kpis=info.get("kpis", []),
+        progress_message=info.get("progress_message"),
     )
 
 
@@ -130,7 +138,10 @@ async def _generate_pdf_background(
     """Proceso asíncrono de generación de PDF."""
     try:
         # Actualizar progreso
-        await _update_redis_status(report_id, {"progress": 30})
+        await _update_redis_status(report_id, {
+            "progress": 30,
+            "progress_message": "Consultando datos espaciales...",
+        })
 
         # Generar data del reporte
         engine = ReportEngine(db)
@@ -140,15 +151,23 @@ async def _generate_pdf_background(
             active_layers=request.active_layers,
             user_id=user_id,
             zone_name=request.zone_name,
+            zone_names=request.zone_names,
             zone_geometry=request.zone_geometry,
+            zone_geometries=request.zone_geometries,
             specific_layers=request.specific_layers,
             map_screenshot=request.map_screenshot,
+            map_screenshots=jsonable_encoder(request.map_screenshots),
+            comparison_mode=request.comparison_mode,
         )
 
         report_payload = jsonable_encoder(report_json)
         await _update_redis_status(report_id, {
             "progress": 60,
+            "progress_message": "Generando PDF profesional...",
             "report_data": report_payload,
+            "zones": report_payload.get("zones", []),
+            "layers": report_payload.get("layers", []),
+            "kpis": report_payload.get("kpis", [])[:3],
         })
 
         # Renderizar PDF profesional con Typst. No hay fallback HTML:
@@ -162,6 +181,7 @@ async def _generate_pdf_background(
             "progress": 100,
             "pdf_path": pdf_path,
             "renderer": "typst",
+            "progress_message": "Reporte listo para descargar.",
             "completed_at": datetime.now().isoformat()
         })
 

@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ia.intent_classifier import IntentClassifier
+from app.services.ia.zone_extractor import extract_zone_names
 from app.services.ia.report_interpreter import ReportInterpreter
 from app.services.spatial.cadastral_analyzer import CadastralAnalyzer
 from app.services.spatial.hydrology_analyzer import HydrologyAnalyzer
@@ -52,9 +53,13 @@ class ReportEngine:
         active_layers: Optional[List[str]] = None,
         user_id: Optional[str] = None,
         zone_name: Optional[str] = None,
+        zone_names: Optional[List[str]] = None,
         zone_geometry: Optional[Dict[str, Any]] = None,
+        zone_geometries: Optional[List[Dict[str, Any]]] = None,
         specific_layers: Optional[List[str]] = None,
         map_screenshot: Optional[str] = None,
+        map_screenshots: Optional[List[Dict[str, Any]]] = None,
+        comparison_mode: bool = False,
     ) -> UniversalReportJSON:
         """
         Genera un reporte completo a partir de la consulta del usuario.
@@ -62,11 +67,29 @@ class ReportEngine:
         start_time = time.time()
         active_layers = active_layers or []
         specific_layers = specific_layers or []
+        requested_zones = self._normalize_zone_list(zone_names or [])
+        if zone_name:
+            requested_zones = self._normalize_zone_list([*requested_zones, zone_name])
+        extracted_zones = extract_zone_names(user_message)
+        if extracted_zones:
+            requested_zones = self._normalize_zone_list([*requested_zones, *extracted_zones])
+        comparison_mode = comparison_mode or len(requested_zones) >= 2
 
-        detected_zone = zone_name or self._extract_zone_name(user_message)
+        detected_zone = requested_zones[0] if requested_zones else self._extract_zone_name(user_message)
         zone_layer: Optional[str] = None
+        resolved_zone_geometries = zone_geometries or []
 
-        if detected_zone and not zone_geometry:
+        if comparison_mode and requested_zones:
+            found_zones = await self._find_zones_in_db(requested_zones)
+            resolved_zone_geometries = [
+                {"name": item["name"], "geometry": item.get("geometry"), "bbox": item.get("bbox")}
+                for item in found_zones
+                if item.get("geometry")
+            ] or resolved_zone_geometries
+            bbox = self._combined_bbox([item.get("bbox") for item in found_zones]) or bbox
+            zone_layer = next((str(item.get("layer_name")) for item in found_zones if item.get("layer_name")), None)
+
+        if detected_zone and not zone_geometry and not comparison_mode:
             found_geometry, found_bbox, found_layer = await self._find_zone_in_db(detected_zone)
             zone_geometry = found_geometry
             bbox = found_bbox or bbox
@@ -91,8 +114,10 @@ class ReportEngine:
 
         # Clasificar intención
         logger.info(f"Clasificando intención de reporte: '{user_message[:60]}...'")
-        intent = await self.classifier.classify(user_message, active_layers)
+        intent = await self.classifier.classify(user_message, active_layers, requested_zones)
         report_type = intent["type"]
+        if comparison_mode:
+            report_type = "comparison_report"
         logger.info(f"Intención clasificada: {report_type} (confianza: {intent['confidence']})")
 
         # Seleccionar y ejecutar analizador espacial
@@ -101,7 +126,8 @@ class ReportEngine:
         if not AnalyzerClass:
             # Para tipos no soportados, intentar un análisis general con CadastralAnalyzer
             logger.warning(f"Tipo '{report_type}' sin analyzer dedicado, usando general")
-            report_type = "general_report"
+            if report_type != "comparison_report":
+                report_type = "general_report"
             # Usar HydrologyAnalyzer como general ya que tiene get_available_layers_in_bbox
             AnalyzerClass = HydrologyAnalyzer
 
@@ -113,6 +139,12 @@ class ReportEngine:
 
         logger.info(f"Ejecutando análisis espacial con {AnalyzerClass.__name__}...")
         spatial_data = await analyzer.analyze()
+        if comparison_mode and requested_zones:
+            spatial_data["comparison_zones"] = await self._build_comparison_zone_summary(
+                requested_zones,
+                resolved_zone_geometries,
+                active_layers,
+            )
 
         # Generar interpretación con IA
         logger.info("Generando interpretación con IA...")
@@ -128,8 +160,12 @@ class ReportEngine:
                 "bbox": bbox,
                 "user_id": user_id,
                 "zone_name": detected_zone,
+                "zone_names": requested_zones,
                 "zone_geometry": zone_geometry,
+                "zone_geometries": resolved_zone_geometries,
                 "map_screenshot": map_screenshot,
+                "map_screenshots": map_screenshots or [],
+                "layers": active_layers,
             }
         )
 
@@ -137,6 +173,31 @@ class ReportEngine:
         logger.info(f"Reporte generado en {elapsed_ms}ms — tipo: {report_type}, KPIs: {len(report.kpis)}, Charts: {len(report.charts)}")
 
         return report
+
+    def _normalize_zone_list(self, values: List[str]) -> List[str]:
+        zones: List[str] = []
+        seen = set()
+        for value in values:
+            if not value:
+                continue
+            cleaned = re.sub(r"\s+", " ", str(value)).strip(" .,:;")
+            key = self._normalize_text(cleaned)
+            if len(key) < 3 or key in seen:
+                continue
+            seen.add(key)
+            zones.append(cleaned.title())
+        return zones
+
+    def _combined_bbox(self, bboxes: List[Optional[Dict[str, float]]]) -> Optional[Dict[str, float]]:
+        valid = [bbox for bbox in bboxes if bbox]
+        if not valid:
+            return None
+        return {
+            "xmin": min(float(bbox["xmin"]) for bbox in valid),
+            "ymin": min(float(bbox["ymin"]) for bbox in valid),
+            "xmax": max(float(bbox["xmax"]) for bbox in valid),
+            "ymax": max(float(bbox["ymax"]) for bbox in valid),
+        }
 
     def _normalize_text(self, value: str) -> str:
         text_value = unicodedata.normalize("NFD", value or "")
@@ -221,6 +282,68 @@ class ReportEngine:
             logger.warning("No se pudo resolver zona '%s': %s", zone_name, exc)
             await self.db.rollback()
             return None, None, None
+
+    async def _find_zones_in_db(self, zone_names: List[str]) -> List[Dict[str, Any]]:
+        found: List[Dict[str, Any]] = []
+        for zone_name in zone_names:
+            geometry, bbox, layer_name = await self._find_zone_in_db(zone_name)
+            found.append({
+                "name": zone_name,
+                "geometry": geometry,
+                "bbox": bbox,
+                "layer_name": layer_name,
+                "found": bool(geometry),
+            })
+        return found
+
+    async def _build_comparison_zone_summary(
+        self,
+        zone_names: List[str],
+        zone_geometries: List[Dict[str, Any]],
+        active_layers: List[str],
+    ) -> List[Dict[str, Any]]:
+        summaries: List[Dict[str, Any]] = []
+        geometry_by_name = {
+            self._normalize_text(item.get("name", "")): item
+            for item in zone_geometries
+        }
+
+        for zone_name in zone_names:
+            zone_item = geometry_by_name.get(self._normalize_text(zone_name), {})
+            bbox = zone_item.get("bbox") or self._bbox_from_geojson(zone_item.get("geometry") or {})
+            feature_count = 0
+            if bbox:
+                try:
+                    result = await self.db.execute(
+                        text("""
+                            SELECT COUNT(lf.id)
+                            FROM layers l
+                            JOIN layer_features lf ON l.id = lf.layer_id
+                            WHERE l.visibility != 'PRIVATE'
+                              AND (:has_layers = false OR l.name = ANY(:layers))
+                              AND ST_Intersects(
+                                lf.geom,
+                                ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                              )
+                        """),
+                        {
+                            **bbox,
+                            "layers": active_layers,
+                            "has_layers": bool(active_layers),
+                        },
+                    )
+                    feature_count = int(result.scalar() or 0)
+                except Exception as exc:
+                    logger.warning("No se pudo contar zona comparativa '%s': %s", zone_name, exc)
+                    await self.db.rollback()
+
+            summaries.append({
+                "name": zone_name,
+                "found": bool(zone_item),
+                "feature_count": feature_count,
+                "bbox": bbox,
+            })
+        return summaries
 
     def _bbox_from_geojson(self, geometry: Dict[str, Any]) -> Optional[Dict[str, float]]:
         coords: List[float] = []

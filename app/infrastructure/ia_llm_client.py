@@ -5,6 +5,7 @@ import asyncio
 from google import genai
 from google.genai import types
 from typing import List, Dict, Any, Optional, AsyncGenerator
+from app.core.config import settings
 from app.schemas.ia import Message
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ class GeminiProvider(LLMProvider):
             config = types.GenerateContentConfig(
                 tools=gemini_tools,
                 system_instruction=system_instruction,
-                temperature=0.7,
+                temperature=settings.LLM_TEMPERATURE_GIS,
             )
 
             response = None
@@ -213,7 +214,7 @@ class GeminiProvider(LLMProvider):
             config = types.GenerateContentConfig(
                 tools=gemini_tools,
                 system_instruction=system_instruction,
-                temperature=0.7,
+                temperature=settings.LLM_TEMPERATURE_GIS,
             )
             
             # Usamos el stream asíncrono nativo (aio)

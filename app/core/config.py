@@ -68,6 +68,9 @@ class Settings(BaseSettings):
 
     # Modelos de IA (Gemini Nativo)
     GOOGLE_API: Optional[str] = None
+    LLM_TEMPERATURE_GIS: float = 0.15
+    STT_PROVIDER: str = "gemini"
+    STT_MODEL: str = "gemini-2.0-flash"
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_TTL_HISTORY: int = 3600
     REDIS_TTL_SUMMARY: int = 86400

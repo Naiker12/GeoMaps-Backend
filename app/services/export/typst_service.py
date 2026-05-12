@@ -79,6 +79,9 @@ class TypstPDFService:
         raw = report.get("raw_spatial_data") or {}
         risk = raw.get("risk_estimation") or {}
         assets_typ = {key: self._typst_path(value) for key, value in assets.items()}
+        layers_summary = self._t(", ".join(report.get("layers") or []) or "Capas activas del mapa")
+        zones_summary = self._t(", ".join(report.get("zones") or []) or location)
+        report_type_label = self._report_type_label(report.get("type") or "general_report")
 
         return f"""
 #set document(title: "{title}", author: "GeoMaps AI Analytics Engine")
@@ -91,7 +94,7 @@ class TypstPDFService:
       grid(
         columns: (1fr, auto),
         align: (left + horizon, right + horizon),
-        text(size: 8pt, weight: "bold", fill: rgb("#1E3A5F"))[GEOMAPS],
+        text(size: 8pt, weight: "bold", fill: rgb("#1A56DB"))[GEOMAPS],
         text(size: 7pt, fill: rgb("#64748B"))[{title}]
       )
       line(length: 100%, stroke: 0.5pt + rgb("#CBD5E1"))
@@ -102,16 +105,16 @@ class TypstPDFService:
     grid(
       columns: (1fr, auto),
       align: (left + horizon, right + horizon),
-      text(size: 7pt, fill: rgb("#64748B"))[GeoMaps AI Analytics Engine | {generated_at}],
-      text(size: 7pt, fill: rgb("#64748B"))[Pag. #counter(page).display("1") de #counter(page).final().first()]
+      text(size: 7pt, fill: rgb("#64748B"))[GeoMaps | {generated_at} | Documento tecnico confidencial],
+      text(size: 7pt, fill: rgb("#64748B"))[Pagina #counter(page).display("1") de #counter(page).final().first()]
     )
   }},
 )
 #set par(justify: true, leading: 0.65em)
 #show heading.where(level: 1): it => {{
   v(14pt)
-  block(width: 100%, fill: rgb("#1E3A5F"), inset: (x: 10pt, y: 6pt), radius: 2pt)[
-    #text(fill: white, size: 12pt, weight: "bold")[#it.body]
+  block(width: 100%, fill: rgb("#EFF6FF"), inset: (x: 10pt, y: 6pt), radius: 2pt)[
+    #text(fill: rgb("#1A56DB"), size: 12pt, weight: "bold")[#it.body]
   ]
   v(8pt)
 }}
@@ -123,27 +126,35 @@ class TypstPDFService:
   v(6pt)
 }}
 
-#page(header: none, footer: none, margin: 0mm)[
-  #block(width: 100%, height: 100%, fill: rgb("#0F172A"))[
-    #block(width: 100%, height: 9mm, fill: rgb("#2563EB"))
-    #v(24mm)
-    #align(center)[
-      #text(fill: rgb("#60A5FA"), size: 24pt, weight: "bold", tracking: 3pt)[GEOMAPS]
-      #v(5mm)
-      #text(fill: white, size: 27pt, weight: "bold")[{title}]
-      #v(4mm)
-      #text(fill: rgb("#CBD5E1"), size: 13pt)[{subtitle}]
-      #v(14mm)
-      #grid(columns: (1fr, 1fr, 1fr), column-gutter: 8pt,
-        {self._kpi_cover_cells(kpis)}
-      )
-      #v(18mm)
-      #text(fill: rgb("#94A3B8"), size: 9pt)[Tipo: {report_type} | Area: {location} | Fecha: {generated_at}]
-    ]
-    #place(bottom)[
-      #block(width: 100%, height: 13mm, fill: rgb("#2563EB"))[
-        #align(center + horizon)[#text(fill: white, size: 8pt)[PDF vectorial generado con Typst | Spatial Engine + AI Interpretation]]
-      ]
+#page(header: none, footer: none, margin: 0mm, fill: white)[
+  #block(width: 100%, height: 8mm, fill: rgb("#1A56DB"))
+  #block(width: 100%, inset: (x: 20mm, top: 16mm, bottom: 10mm))[
+    #text(size: 28pt, weight: "bold", fill: rgb("#1A56DB"))[GEOMAPS]
+    #v(2mm)
+    #text(size: 11pt, fill: rgb("#64748B"))[Sistema de Informacion Geografica]
+    #v(12mm)
+    #line(length: 100%, stroke: 0.5pt + rgb("#CBD5E1"))
+    #v(8mm)
+    #text(size: 20pt, weight: "bold", fill: rgb("#0F172A"))[{title}]
+    #v(4mm)
+    #text(size: 12pt, fill: rgb("#475569"))[{subtitle}]
+    #v(10mm)
+    #grid(columns: (1fr, 1fr, 1fr), column-gutter: 8pt,
+      {self._kpi_cover_cells(kpis)}
+    )
+    #v(10mm)
+    #line(length: 100%, stroke: 0.5pt + rgb("#CBD5E1"))
+    #v(6mm)
+    #grid(columns: (1fr, 1fr), column-gutter: 10pt,
+      [#text(size: 8pt, fill: rgb("#94A3B8"))[Area de estudio] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{zones_summary}]],
+      [#text(size: 8pt, fill: rgb("#94A3B8"))[Fecha de generacion] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{generated_at}]],
+      [#text(size: 8pt, fill: rgb("#94A3B8"))[Capas analizadas] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{layers_summary}]],
+      [#text(size: 8pt, fill: rgb("#94A3B8"))[Tipo de analisis] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{report_type_label}]],
+    )
+  ]
+  #place(bottom)[
+    #block(width: 100%, fill: rgb("#F1F5F9"), inset: (x: 20mm, y: 4mm))[
+      #text(size: 8pt, fill: rgb("#64748B"))[Documento tecnico generado por GeoMaps]
     ]
   ]
 ]
@@ -214,9 +225,9 @@ Este documento tecnico consolida resultados GIS reales, estadisticas espaciales 
   stroke: 0.5pt + rgb("#E2E8F0"),
   inset: (x: 8pt, y: 6pt),
   [Campo], [Valor],
-  [Motor de analisis], [GeoMaps Spatial Engine],
-  [Motor de interpretacion], [GeoMaps AI / Gemini],
-  [Motor de exportacion], [Typst PDF vectorial],
+  [Motor de analisis], [GeoMaps],
+  [Motor de interpretacion], [GeoMaps AI],
+  [Motor de exportacion], [GeoMaps PDF],
   [Clasificacion], [Documento tecnico],
 )
 """
@@ -224,7 +235,7 @@ Este documento tecnico consolida resultados GIS reales, estadisticas espaciales 
     def _kpi_cover_cells(self, kpis: List[Dict[str, Any]]) -> str:
         selected = (kpis[:3] or [{"label": "Indicadores", "value": "N/D"}])
         return ",\n".join(
-            f'block(fill: rgb("#1E293B"), inset: 10pt, radius: 4pt)[#text(fill: rgb("#94A3B8"), size: 7pt)[{self._t(item.get("label"))}] #linebreak() #text(fill: rgb("#60A5FA"), size: 14pt, weight: "bold")[{self._t(item.get("value"))}]]'
+            f'block(fill: rgb("#F8FAFC"), stroke: 0.8pt + rgb("#E2E8F0"), inset: 10pt, radius: 4pt)[#text(fill: rgb("#64748B"), size: 7pt)[{self._t(item.get("label"))}] #linebreak() #text(fill: rgb("#1A56DB"), size: 15pt, weight: "bold")[{self._t(item.get("value"))}]]'
             for item in selected
         )
 
@@ -288,6 +299,15 @@ Este documento tecnico consolida resultados GIS reales, estadisticas espaciales 
         if not value:
             return datetime.now().strftime("%Y-%m-%d")
         return self._t(str(value).split("T")[0])
+
+    def _report_type_label(self, report_type: str) -> str:
+        labels = {
+            "comparison_report": "Reporte Comparativo",
+            "cadastral_report": "Reporte Catastral",
+            "hydrology_report": "Reporte Hidrologico",
+            "general_report": "Reporte General",
+        }
+        return self._t(labels.get(report_type, "Reporte Geoespacial"))
 
     def _typst_path(self, value: str) -> str:
         path = Path(value).resolve()

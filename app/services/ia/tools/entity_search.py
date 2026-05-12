@@ -182,6 +182,71 @@ class EntitySearchTools:
             logger.error("Error en buscar_y_mostrar_entidad: %s", exc)
             return {"found": False, "error": str(exc)}
 
+    async def buscar_y_mostrar_entidades(
+        self,
+        layer_name: str,
+        search_field: str,
+        search_values: List[str],
+    ) -> Dict[str, Any]:
+        """Busca varias entidades en una capa para comparaciones multi-zona."""
+        try:
+            values = [str(value).strip() for value in search_values if str(value).strip()]
+            if not values:
+                return {"success": False, "error": "No hay valores de busqueda."}
+
+            entities = []
+            map_items = []
+            for value in values[:8]:
+                stmt = text("""
+                    SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
+                    FROM layer_features lf
+                    JOIN layers l ON l.id = lf.layer_id
+                    WHERE unaccent(l.name) ILIKE unaccent(:layer)
+                      AND unaccent(lf.properties->>:field) ILIKE unaccent(:value)
+                    LIMIT 1
+                """)
+                result = await self.db.execute(
+                    stmt,
+                    {"layer": f"%{layer_name}%", "field": search_field, "value": f"%{value}%"},
+                )
+                entity = result.mappings().one_or_none()
+                if not entity:
+                    entities.append({"found": False, "name": value})
+                    continue
+
+                geometry = json.loads(entity["geom"]) if entity["geom"] else None
+                props = entity["properties"] or {}
+                display_name = get_feature_display_name(props)
+                entities.append({
+                    "found": True,
+                    "name": display_name or value,
+                    "requested_value": value,
+                    "geometry": geometry,
+                    "properties": props,
+                })
+                map_items.append({
+                    "name": display_name or value,
+                    "geometry": geometry,
+                    "properties": props,
+                })
+
+            found_count = sum(1 for item in entities if item.get("found"))
+            missing = [item["name"] for item in entities if not item.get("found")]
+            return {
+                "success": found_count > 0,
+                "entities": entities,
+                "all_found": found_count == len(values),
+                "missing_zones": missing,
+                "comparison_ready": found_count >= 2,
+                "map_actions": [
+                    {"map_action": "highlight_zones", "layer_name": layer_name, "zones": map_items},
+                ],
+                "mensaje": f"Se localizaron {found_count} de {len(values)} zonas solicitadas.",
+            }
+        except Exception as exc:
+            logger.error("Error en buscar_y_mostrar_entidades: %s", exc)
+            return {"success": False, "error": str(exc)}
+
     async def consultar_datos_tabla(self, layer_name: str, limit: int = 10) -> Dict[str, Any]:
         """Obtiene un listado de registros de una capa para mostrar en tabla."""
         try:
@@ -263,4 +328,3 @@ class EntitySearchTools:
         except Exception as exc:
             logger.error("Error en consultar_datos_tabla: %s", exc)
             return {"success": False, "error": str(exc)}
-

@@ -40,6 +40,11 @@ class MapLegendItem(BaseModel):
     items: List[Dict[str, str]] = Field(default_factory=list)
 
 
+class MapScreenshot(BaseModel):
+    label: str
+    data: str
+
+
 # ── JSON Universal del Reporte ───────────────────────
 class UniversalReportJSON(BaseModel):
     """
@@ -58,8 +63,11 @@ class UniversalReportJSON(BaseModel):
 
     # Mapa
     map_screenshot: Optional[str] = None
+    map_screenshots: List[MapScreenshot] = Field(default_factory=list)
     map_legend: List[MapLegendItem] = Field(default_factory=list)
     map_extent: Optional[Dict[str, float]] = None  # {xmin, ymin, xmax, ymax}
+    zones: List[str] = Field(default_factory=list)
+    layers: List[str] = Field(default_factory=list)
 
     # KPIs
     kpis: List[KPIItem] = Field(default_factory=list)
@@ -84,9 +92,13 @@ class ReportRequest(BaseModel):
     bbox: Optional[Dict[str, float]] = None  # {xmin, ymin, xmax, ymax}
     active_layers: List[str] = Field(default_factory=list)
     map_screenshot: Optional[str] = None
+    map_screenshots: List[MapScreenshot] = Field(default_factory=list)
     conversation_id: Optional[UUID] = None
     zone_name: Optional[str] = None
+    zone_names: List[str] = Field(default_factory=list)
     zone_geometry: Optional[Dict[str, Any]] = None
+    zone_geometries: List[Dict[str, Any]] = Field(default_factory=list)
+    comparison_mode: bool = False
     specific_layers: List[str] = Field(default_factory=list)
 
 
@@ -99,6 +111,10 @@ class ReportStatusResponse(BaseModel):
     download_url: Optional[str] = None
     error_message: Optional[str] = None
     renderer: Optional[str] = None  # typst
+    zones: List[str] = Field(default_factory=list)
+    layers: List[str] = Field(default_factory=list)
+    kpis: List[Dict[str, Any]] = Field(default_factory=list)
+    progress_message: Optional[str] = None
 
 
 # ── Response de Generación ───────────────────────────

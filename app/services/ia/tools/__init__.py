@@ -91,11 +91,11 @@ class ToolsService(
                         "type": "object",
                         "properties": {
                             "layer_name": {"type": "string", "description": "Nombre de la capa."},
-                            "field": {"type": "string", "description": "Atributo para agrupar."},
+                            "field": {"type": "string", "description": "Atributo sugerido para agrupar. Si no es descriptivo, el backend lo corregira automaticamente."},
                             "chart_type": {"type": "string", "enum": ["bar", "pie", "line", "summary"]},
                             "limit": {"type": "integer", "description": "Numero de categorias top a mostrar.", "default": 15},
                         },
-                        "required": ["layer_name", "field"],
+                        "required": ["layer_name"],
                     },
                 },
             },
@@ -127,6 +127,26 @@ class ToolsService(
                             "search_value": {"type": "string", "description": "Valor exacto o parcial a buscar."},
                         },
                         "required": ["layer_name", "search_field", "search_value"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "buscar_y_mostrar_entidades",
+                    "description": "Localiza varias entidades de una capa para compararlas o resaltarlas al mismo tiempo.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "layer_name": {"type": "string", "description": "Nombre de la capa."},
+                            "search_field": {"type": "string", "description": "Campo de busqueda."},
+                            "search_values": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Lista de valores exactos o parciales a buscar.",
+                            },
+                        },
+                        "required": ["layer_name", "search_field", "search_values"],
                     },
                 },
             },
