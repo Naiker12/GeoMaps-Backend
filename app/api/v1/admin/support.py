@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.schemas.support import (
+    SupportReplyCreate,
     SupportRequestListResponse,
     SupportRequestResponse,
     SupportRequestUpdate,
@@ -53,6 +54,28 @@ async def update_support_request(
 ):
     service = SupportService(db)
     support_request = await service.update_request(request_id, request_in)
+    if not support_request:
+        raise HTTPException(status_code=404, detail="Solicitud de soporte no encontrada")
+    return support_request
+
+
+@router.post("/{request_id}/reply", response_model=SupportRequestResponse)
+async def reply_support_request(
+    request_id: uuid.UUID,
+    reply_in: SupportReplyCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    service = SupportService(db)
+    try:
+        support_request = await service.reply_request(request_id, reply_in)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo enviar el correo de soporte. Verifica la configuracion SMTP.",
+        ) from exc
+
     if not support_request:
         raise HTTPException(status_code=404, detail="Solicitud de soporte no encontrada")
     return support_request

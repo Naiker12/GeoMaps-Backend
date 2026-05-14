@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     IA_USAGE_LIMIT: int = 15
     IA_USAGE_WINDOW_HOURS: int = 4
 
+    # Email / soporte. Para Gmail usar una App Password, no la contrasena normal.
+    SUPPORT_EMAIL_ENABLED: bool = False
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+    SMTP_FROM_NAME: str = "GeoMaps Soporte"
+    SUPPORT_REPLY_TO_EMAIL: Optional[str] = None
+
     model_config = SettingsConfigDict(
         case_sensitive=True, env_file=".env", extra="ignore"
     )

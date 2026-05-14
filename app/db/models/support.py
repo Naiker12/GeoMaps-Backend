@@ -46,6 +46,7 @@ class SupportRequest(Base):
         String(30), nullable=False, default=SupportRequestPriority.NORMAL.value, index=True
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default="help_panel")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
 
@@ -56,6 +57,8 @@ class SupportRequest(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     requester = relationship(User, foreign_keys=[user_id])
     assignee = relationship(User, foreign_keys=[assigned_to])

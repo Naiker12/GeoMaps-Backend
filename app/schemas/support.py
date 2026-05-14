@@ -21,6 +21,11 @@ class SupportRequestUpdate(BaseModel):
     assigned_to: Optional[uuid.UUID] = None
 
 
+class SupportReplyCreate(BaseModel):
+    response_message: str = Field(..., min_length=8, max_length=5000)
+    mark_resolved: bool = True
+
+
 class SupportRequestResponse(BaseModel):
     id: uuid.UUID
     user_id: Optional[uuid.UUID] = None
@@ -32,11 +37,14 @@ class SupportRequestResponse(BaseModel):
     status: str
     priority: str
     notes: Optional[str] = None
+    response_message: Optional[str] = None
     source: str
     metadata_: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
+    email_sent_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

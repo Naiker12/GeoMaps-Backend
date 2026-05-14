@@ -6,7 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.support import SupportRequest
-from app.schemas.support import SupportRequestCreate, SupportRequestUpdate
+from app.schemas.support import SupportReplyCreate, SupportRequestCreate, SupportRequestUpdate
+from app.services.email_service import SupportReplyEmail, email_service
 
 
 class SupportService:
@@ -92,6 +93,39 @@ class SupportService:
             support_request.resolved_at = datetime.now(timezone.utc)
         elif update_data.get("status") and update_data.get("status") != "resolved":
             support_request.resolved_at = None
+
+        await self.db.commit()
+        await self.db.refresh(support_request)
+        return support_request
+
+    async def reply_request(
+        self,
+        request_id: uuid.UUID,
+        reply_in: SupportReplyCreate,
+    ) -> Optional[SupportRequest]:
+        support_request = await self.get_request(request_id)
+        if not support_request:
+            return None
+
+        sent_at = datetime.now(timezone.utc)
+        await email_service.send_support_reply(
+            SupportReplyEmail(
+                to_email=support_request.email,
+                to_name=support_request.name,
+                case_id=str(support_request.id),
+                original_message=support_request.message,
+                reply_message=reply_in.response_message.strip(),
+            )
+        )
+
+        support_request.response_message = reply_in.response_message.strip()
+        support_request.responded_at = sent_at
+        support_request.email_sent_at = sent_at
+        if reply_in.mark_resolved:
+            support_request.status = "resolved"
+            support_request.resolved_at = sent_at
+        elif support_request.status == "new":
+            support_request.status = "reviewing"
 
         await self.db.commit()
         await self.db.refresh(support_request)
