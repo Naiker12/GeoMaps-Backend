@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.auth.service import auth_service
-from app.core.config import settings
 from app.core.security.dependencies import get_current_user
 from app.core.security.jwt_handler import decode_supabase_token
 from app.db.models.user import User
@@ -34,6 +33,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class SupabaseLoginRequest(BaseModel):
     access_token: str
+
+
+def _is_local_origin(origin: str | None) -> bool:
+    return bool(origin and ("localhost" in origin or "127.0.0.1" in origin))
+
+
+def _cookie_security_options(request: Request) -> tuple[str, bool]:
+    is_dev = _is_local_origin(request.headers.get("origin"))
+    return ("lax" if is_dev else "none", not is_dev)
 
 
 @router.post("/login/supabase", response_model=UserBase)
@@ -59,17 +67,15 @@ async def login_supabase(
             ua=request.headers.get("user-agent"),
         )
 
-        is_dev = (
-            "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
-        )
+        cookie_samesite, cookie_secure = _cookie_security_options(request)
 
         # Token backend en cookie HttpOnly (más seguro que localStorage)
         response.set_cookie(
             key="access_token",
             value=local_token,
             httponly=True,
-            samesite="lax",
-            secure=not is_dev,
+            samesite=cookie_samesite,
+            secure=cookie_secure,
             max_age=86400,
         )
 
@@ -123,17 +129,15 @@ async def upload_avatar(
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, request: Request):
     """Limpia las cookies de autenticación del navegador."""
-    is_dev = (
-        "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
-    )
+    cookie_samesite, cookie_secure = _cookie_security_options(request)
     response.delete_cookie(
         key="access_token",
         path="/",
         httponly=True,
-        samesite="lax",
-        secure=not is_dev,
+        samesite=cookie_samesite,
+        secure=cookie_secure,
     )
     return {"success": True}
 

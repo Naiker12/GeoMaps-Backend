@@ -4,7 +4,9 @@ Configura ciclo de vida, middleware CORS, excepciones y registro de rutas.
 
 import logging
 import time
+import json
 from contextlib import asynccontextmanager
+from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -48,6 +50,23 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+def _origin_items(value: Any) -> list[str]:
+    """Normaliza variables CORS: lista JSON, lista Python o valores con comas."""
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip().rstrip("/") for item in value if str(item).strip()]
+    raw_value = str(value).strip()
+    if raw_value.startswith("["):
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            parsed = raw_value
+        if isinstance(parsed, list):
+            return _origin_items(parsed)
+    return [item.strip().rstrip("/") for item in raw_value.split(",") if item.strip()]
+
+
 ALLOWED_ORIGINS = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
@@ -59,13 +78,13 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:4173",
 ]
 
-if getattr(settings, "BACKEND_CORS_ORIGINS", None):
-    extra = [str(o).rstrip("/") for o in settings.BACKEND_CORS_ORIGINS]
-    ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS + extra))
-
-if getattr(settings, "FRONTEND_URL", None):
-    frontend_origin = str(settings.FRONTEND_URL).rstrip("/")
-    ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS + [frontend_origin]))
+ALLOWED_ORIGINS = sorted(
+    set(
+        ALLOWED_ORIGINS
+        + _origin_items(getattr(settings, "BACKEND_CORS_ORIGINS", None))
+        + _origin_items(getattr(settings, "FRONTEND_URL", None))
+    )
+)
 
 app.add_middleware(
     CORSMiddleware,
