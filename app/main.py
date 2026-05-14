@@ -63,6 +63,10 @@ if getattr(settings, "BACKEND_CORS_ORIGINS", None):
     extra = [str(o).rstrip("/") for o in settings.BACKEND_CORS_ORIGINS]
     ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS + extra))
 
+if getattr(settings, "FRONTEND_URL", None):
+    frontend_origin = str(settings.FRONTEND_URL).rstrip("/")
+    ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS + [frontend_origin]))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
