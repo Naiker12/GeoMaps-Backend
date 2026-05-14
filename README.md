@@ -12,7 +12,7 @@ Este README documenta la arquitectura real del backend, sus servicios, librerias
 - [Estructura de carpetas](#estructura-de-carpetas)
 - [Servicios del backend](#servicios-del-backend)
 - [Modelos principales](#modelos-principales)
-- [Endpoints](#endpoints)
+- [Referencia API](#referencia-api)
 - [Variables de entorno](#variables-de-entorno)
 - [Instalacion y ejecucion](#instalacion-y-ejecucion)
 - [Base de datos y migraciones](#base-de-datos-y-migraciones)
@@ -155,124 +155,28 @@ docs/                     Documentacion complementaria.
 | `APIKeyDailyStats` | `api_key_daily_stats` | Agregados diarios por llave. |
 | `ActivityLog` | `activity_logs` | Eventos de actividad del sistema. |
 
-## Endpoints
+## Referencia API
 
-La documentacion interactiva se expone en:
+El backend expone una API versionada bajo `/api/v1`, pero este README no mantiene un inventario manual de rutas. La fuente de verdad es la documentacion interactiva generada por FastAPI:
 
 ```txt
 http://localhost:8000/api/v1/docs
 http://localhost:8000/api/v1/redoc
 ```
 
-Salud del servicio:
+En produccion, usar la URL publica del servicio:
 
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `GET` | `/health` | Retorna estado basico del backend. |
+```txt
+https://geomaps-backend.onrender.com/api/v1/docs
+```
 
-### Autenticacion
+El estado basico del servicio se valida con:
 
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/auth/login/supabase` | Valida token Supabase y sincroniza usuario. |
-| `GET` | `/api/v1/auth/me` | Perfil autenticado. |
-| `PATCH` | `/api/v1/auth/me` | Actualiza perfil. |
-| `POST` | `/api/v1/auth/me/avatar` | Sube avatar. |
-| `POST` | `/api/v1/auth/logout` | Cierra sesion. |
-| `GET` | `/api/v1/auth/sessions` | Lista sesiones. |
-| `DELETE` | `/api/v1/auth/sessions/{session_id}` | Cierra una sesion especifica. |
+```txt
+GET /health
+```
 
-### Proyectos
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/projects/` | Crea proyecto. |
-| `GET` | `/api/v1/projects/` | Lista proyectos autenticados/admin. |
-| `GET` | `/api/v1/projects/public` | Lista proyectos publicos. |
-| `GET` | `/api/v1/projects/{id}` | Detalle de proyecto. |
-| `PUT` | `/api/v1/projects/{id}` | Actualiza proyecto. |
-| `DELETE` | `/api/v1/projects/{id}` | Elimina proyecto. |
-| `POST` | `/api/v1/projects/{id}/images` | Sube imagenes. |
-| `POST` | `/api/v1/projects/{id}/models` | Sube modelos 3D. |
-| `POST` | `/api/v1/projects/{id}/shapefile` | Procesa shapefile de proyecto/lotes. |
-| `GET` | `/api/v1/projects/{id}/lots/geojson` | Entrega lotes como GeoJSON. |
-| `PUT` | `/api/v1/projects/{id}/lots/{lot_id}` | Actualiza lote. |
-
-### Capas
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/layers/` | Crea capa desde archivo/metadatos. |
-| `GET` | `/api/v1/layers/` | Lista capas. |
-| `GET` | `/api/v1/layers/categories` | Lista categorias. |
-| `PATCH` | `/api/v1/layers/{layer_id}` | Actualiza capa o simbologia. |
-| `DELETE` | `/api/v1/layers/{layer_id}` | Elimina capa. |
-| `GET` | `/api/v1/layers/{layer_id}/features` | FeatureCollection de la capa. |
-| `GET` | `/api/v1/layers/features/properties` | Propiedades de multiples capas. |
-| `GET` | `/api/v1/layers/features/{feature_id}` | Detalle de una entidad. |
-| `GET` | `/api/v1/layers/{layer_id}/field-values` | Valores unicos de un campo. |
-| `GET` | `/api/v1/layers/{layer_id}/field-stats` | Estadisticas de campo numerico. |
-
-### Busqueda
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `GET` | `/api/v1/search/` | Busqueda global por `q` y radio opcional. |
-| `GET` | `/api/v1/search/suggestions` | Sugerencias de busqueda. |
-| `POST` | `/api/v1/search/viewed` | Registra visualizacion de resultado. |
-
-### Recursos Descargables
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/resources/` | Crea recurso descargable. |
-| `POST` | `/api/v1/resources/{resource_id}/upload` | Sube archivo al recurso. |
-| `GET` | `/api/v1/resources/` | Lista recursos admin. |
-| `GET` | `/api/v1/resources/public` | Lista recursos publicos agrupados. |
-| `DELETE` | `/api/v1/resources/{download_id}` | Elimina recurso. |
-
-### API Keys
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/keys/` | Crea llave para el usuario autenticado. |
-| `GET` | `/api/v1/keys/` | Lista llaves del usuario. |
-| `PATCH` | `/api/v1/keys/{key_id}/revoke` | Revoca llave. |
-| `DELETE` | `/api/v1/keys/{key_id}` | Elimina llave. |
-| `GET` | `/api/v1/keys/stats` | Estadisticas del usuario. |
-
-### Administracion
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `GET` | `/api/v1/admin/analytics/summary` | Resumen administrativo. |
-| `GET` | `/api/v1/admin/analytics/charts` | Datos para graficas. |
-| `GET` | `/api/v1/admin/analytics/usage` | Uso del sistema. |
-| `GET` | `/api/v1/admin/api-keys/` | Lista global de API keys. |
-| `POST` | `/api/v1/admin/api-keys/` | Crea llave para un usuario. |
-| `PATCH` | `/api/v1/admin/api-keys/{key_id}/revoke` | Revoca llave admin. |
-| `DELETE` | `/api/v1/admin/api-keys/{key_id}` | Elimina llave admin. |
-| `GET` | `/api/v1/admin/api-keys/stats/overview` | Resumen global de llaves. |
-| `PATCH` | `/api/v1/admin/api-keys/settings/rate-limit` | Cambia limite global. |
-| `POST` | `/api/v1/admin/api-keys/settings/pause` | Pausa/reactiva trafico. |
-| `PUT` | `/api/v1/admin/api-keys/settings/ip-whitelist` | Configura whitelist IP. |
-
-### Rutas IA
-
-| Metodo | Ruta | Funcion |
-| --- | --- | --- |
-| `POST` | `/api/v1/ia/chat` | Chat IA con respuesta completa. |
-| `POST` | `/api/v1/ia/chat/stream` | Chat IA con streaming. |
-| `GET` | `/api/v1/ia/models` | Modelos disponibles. |
-| `GET` | `/api/v1/ia/conversations` | Conversaciones del usuario. |
-| `GET` | `/api/v1/ia/conversations/{conversation_id}/messages` | Mensajes de una conversacion. |
-| `DELETE` | `/api/v1/ia/conversations` | Elimina conversaciones del usuario. |
-| `DELETE` | `/api/v1/ia/conversations/{conversation_id}` | Elimina una conversacion. |
-| `GET` | `/api/v1/ia/suggestions` | Sugerencias para el chat. |
-| `GET` | `/api/v1/ia/usage` | Uso IA del usuario. |
-| `GET` | `/api/v1/admin/ia/stats` | Estadisticas IA admin. |
-| `GET` | `/api/v1/admin/ia/audit-logs` | Auditoria IA. |
-| `GET` | `/api/v1/admin/ia/models` | Configuracion de modelos IA. |
+Para documentar nuevas rutas, se recomienda usar `response_model`, descripciones claras en los routers y schemas Pydantic; de esa forma Swagger/OpenAPI permanece actualizado sin duplicar tablas en este archivo.
 
 ## Variables De Entorno
 

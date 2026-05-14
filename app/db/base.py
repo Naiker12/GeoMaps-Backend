@@ -15,9 +15,8 @@ from app.db.models.download import DownloadResource
 from app.db.models.api_key import (
     APIKey, 
     APIKeyUsageLog, 
-    APIKeyIPWhitelist, 
-    APIKeyRateLimitConfig, 
     APIKeyDailyStats
 )
 from app.db.models.activity import ActivityLog
 from app.db.models.user_session import UserSession
+from app.db.models.support import SupportRequest

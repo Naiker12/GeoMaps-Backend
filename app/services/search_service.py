@@ -59,8 +59,12 @@ class SearchService:
         """Obtiene sugerencias automáticas usando display_name."""
         # Features con display_name
         feature_stmt = text("""
-            SELECT DISTINCT display_name FROM layer_features
-            WHERE display_name IS NOT NULL
+            SELECT display_name
+            FROM (
+                SELECT DISTINCT display_name
+                FROM layer_features
+                WHERE display_name IS NOT NULL
+            ) AS distinct_features
             ORDER BY RANDOM()
             LIMIT :limit
         """)
