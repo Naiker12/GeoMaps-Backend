@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     def assemble_db_connection(cls, v: Optional[str]) -> Any:
         if isinstance(v, str) and not v.startswith("postgresql+psycopg://"):
-            return v.replace("postgresql://", "postgresql+psycopg://")
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+psycopg://", 1)
+            return v.replace("postgresql://", "postgresql+psycopg://", 1)
         return v
 
     # Supabase

@@ -197,7 +197,7 @@ BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
 | Variable | Obligatoria | Descripcion |
 | --- | --- | --- |
-| `DATABASE_URL` | Si | Conexion PostgreSQL. El codigo convierte `postgresql://` a `postgresql+psycopg://` cuando aplica. |
+| `DATABASE_URL` | Si | Conexion PostgreSQL. El codigo convierte `postgres://`/`postgresql://` a `postgresql+psycopg://` cuando aplica. En Render con Supabase usa el pooler IPv4, no `db.<project>.supabase.co`. |
 | `SUPABASE_URL` | Si | URL del proyecto Supabase. |
 | `SUPABASE_ANON_KEY` | Si | Llave anonima para operaciones de auth. |
 | `SUPABASE_SERVICE_KEY` | Recomendada | Llave service role para storage/operaciones administrativas. |
@@ -206,6 +206,17 @@ BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 | `GOOGLE_API` | Si usa IA | API key de Google Gemini. |
 | `FRONTEND_URL` | Recomendada | URL del frontend para CORS y callbacks. |
 | `BACKEND_CORS_ORIGINS` | Recomendada | Lista de origenes permitidos separados por coma o JSON list. |
+
+### Supabase En Render
+
+Render no soporta conexiones IPv6 salientes para este caso. Si `DATABASE_URL` apunta a `db.<project-ref>.supabase.co:5432`, Supabase puede resolverlo a IPv6 y la app falla con `Network is unreachable`.
+
+En Supabase Dashboard -> Project Settings -> Database -> Connection string, copia una URL de pooler:
+
+- Session pooler para este backend persistente: `postgres://postgres.<project-ref>:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres`
+- Transaction pooler si prefieres puerto `6543`: `postgres://postgres.<project-ref>:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres`
+
+Pega esa URL como `DATABASE_URL` en Render. El backend desactiva prepared statements automaticamente cuando detecta el transaction pooler `:6543`.
 
 ## Instalacion Y Ejecucion
 
