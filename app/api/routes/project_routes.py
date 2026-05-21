@@ -1,11 +1,19 @@
+import json
 import uuid
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.db.models.user import User
+from app.db.session import get_db
+from app.schemas.project_asset import (
+    ProjectAssetResponse,
+    ProjectAssetUpdate,
+    ProjectModelTransformUpdate,
+    RenderableModelsResponse,
+)
 from app.schemas.project import (
     Project,
     ProjectCreate,
@@ -15,6 +23,7 @@ from app.schemas.project import (
     ProjectModel3D,
     ProjectUpdate,
 )
+from app.services.project_asset_service import ProjectAssetService
 from app.services.project_service import ProjectService
 
 router = APIRouter()
@@ -64,6 +73,11 @@ async def get_project(
 
     # Validar visibilidad si el usuario no es admin o dueño
     # (Esto se debería manejar dentro del servicio, pero por ahora simplificamos)
+    if current_user is None and not (
+        project.admin_settings and project.admin_settings.is_publicly_visible
+    ):
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
     return project
 
 
@@ -84,6 +98,129 @@ async def delete_project(
     current_user: User = Depends(deps.get_current_admin_user),
 ):
     await service.delete_project(id)
+
+
+@router.get("/{id}/assets", response_model=List[ProjectAssetResponse])
+async def list_project_assets(
+    id: uuid.UUID,
+    kind: Optional[str] = Query(None),
+    service: ProjectService = Depends(deps.get_project_service),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(deps.get_current_user_optional),
+):
+    project = await service.get_project_by_id(id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    public_only = current_user is None
+    if public_only and not (
+        project.admin_settings and project.admin_settings.is_publicly_visible
+    ):
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    asset_service = ProjectAssetService(db)
+    return await asset_service.list_assets(id, kind=kind, public_only=public_only)
+
+
+@router.post("/{id}/assets", response_model=List[ProjectAssetResponse])
+async def upload_project_assets(
+    id: uuid.UUID,
+    files: List[UploadFile] = File(...),
+    kind: Optional[str] = Form(None),
+    role: Optional[str] = Form(None),
+    is_public: bool = Form(True),
+    is_primary: bool = Form(False),
+    metadata: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_user),
+):
+    try:
+        parsed_metadata = json.loads(metadata) if metadata else None
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="metadata debe ser JSON valido") from exc
+
+    asset_service = ProjectAssetService(db)
+    try:
+        return await asset_service.upload_assets(
+            project_id=id,
+            files=files,
+            kind=kind,
+            role=role,
+            is_public=is_public,
+            is_primary=is_primary,
+            metadata=parsed_metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.patch("/{id}/assets/{asset_id}", response_model=ProjectAssetResponse)
+async def update_project_asset(
+    id: uuid.UUID,
+    asset_id: uuid.UUID,
+    asset_in: ProjectAssetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_user),
+):
+    asset_service = ProjectAssetService(db)
+    try:
+        asset = await asset_service.update_asset(id, asset_id, asset_in)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
+    return asset
+
+
+@router.delete("/{id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project_asset(
+    id: uuid.UUID,
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_user),
+):
+    asset_service = ProjectAssetService(db)
+    success = await asset_service.delete_asset(id, asset_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
+    return None
+
+
+@router.get("/{id}/models/renderable", response_model=RenderableModelsResponse)
+async def get_renderable_project_models(
+    id: uuid.UUID,
+    service: ProjectService = Depends(deps.get_project_service),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(deps.get_current_user_optional),
+):
+    project = await service.get_project_by_id(id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    public_only = current_user is None
+    if public_only and not (
+        project.admin_settings and project.admin_settings.is_publicly_visible
+    ):
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    asset_service = ProjectAssetService(db)
+    models = await asset_service.get_renderable_models(id, public_only=public_only)
+    return {"project_id": id, "models": models}
+
+
+@router.patch("/{id}/models/{asset_id}/transform", response_model=ProjectAssetResponse)
+async def update_project_model_transform(
+    id: uuid.UUID,
+    asset_id: uuid.UUID,
+    transform_in: ProjectModelTransformUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_user),
+):
+    asset_service = ProjectAssetService(db)
+    asset = await asset_service.update_model_transform(id, asset_id, transform_in.transform)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Modelo 3D no encontrado")
+    return asset
 
 
 @router.post("/{id}/images", response_model=List[ProjectImage])
@@ -113,7 +250,10 @@ async def upload_shapefile(
     service: ProjectService = Depends(deps.get_project_service),
     current_user: User = Depends(deps.get_current_admin_user),
 ):
-    return await service.upload_shapefile(id, files)
+    try:
+        return await service.upload_shapefile(id, files)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{id}/lots/geojson")
@@ -128,6 +268,10 @@ async def get_project_lots_geojson(
     """
     project = await service.get_project_by_id(id)
     if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    if current_user is None and not (
+        project.admin_settings and project.admin_settings.is_publicly_visible
+    ):
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     return await service.get_lots_geojson(id)
 

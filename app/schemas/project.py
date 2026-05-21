@@ -124,6 +124,7 @@ class ProjectAdminSettings(ProjectAdminSettingsBase):
 class ProjectLotBase(BaseModel):
     identifier: str
     nz_zone: Optional[str] = None
+    floor_level: Optional[int] = None
     area_m2: Optional[float] = None
     status: str = "Disponible"
     price: Optional[float] = None
@@ -135,6 +136,7 @@ class ProjectLotCreate(ProjectLotBase):
 class ProjectLotUpdate(BaseModel):
     identifier: Optional[str] = None
     nz_zone: Optional[str] = None
+    floor_level: Optional[int] = None
     area_m2: Optional[float] = None
     status: Optional[str] = None
     price: Optional[float] = None
@@ -168,6 +170,7 @@ class ProjectBase(BaseModel):
     manager_name: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_email: Optional[EmailStr] = None
+    glb_model_url: Optional[str] = None
     internal_status: InternalStatus = InternalStatus.ACTIVO
 
 class ProjectCreate(ProjectBase):
@@ -185,6 +188,7 @@ class ProjectUpdate(BaseModel):
     manager_name: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_email: Optional[EmailStr] = None
+    glb_model_url: Optional[str] = None
     internal_status: Optional[InternalStatus] = None
     
     location: Optional[ProjectLocationBase] = None

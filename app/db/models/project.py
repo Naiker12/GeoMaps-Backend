@@ -1,13 +1,16 @@
 import enum
 import uuid
 from datetime import datetime, date
-from typing import List, Optional, Any
+from typing import List, Optional, Any, TYPE_CHECKING
 
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, Numeric, Enum, Date, JSON, CheckConstraint, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
 from app.db.session import Base
+
+if TYPE_CHECKING:
+    from app.db.models.project_asset import ProjectAsset
 
 class ProjectStatus(str, enum.Enum):
     PLANNING = "PLANNING"
@@ -40,6 +43,7 @@ class Project(Base):
     manager_name: Mapped[Optional[str]] = mapped_column(String(255))
     contact_phone: Mapped[Optional[str]] = mapped_column(String(50))
     contact_email: Mapped[Optional[str]] = mapped_column(String(255))
+    glb_model_url: Mapped[Optional[str]] = mapped_column(String(500))
     
     internal_status: Mapped[InternalStatus] = mapped_column(
         Enum(InternalStatus, name="internal_status"), 
@@ -61,6 +65,7 @@ class Project(Base):
     images: Mapped[List["ProjectImage"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     models_3d: Mapped[List["ProjectModel3D"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     lots: Mapped[List["ProjectLot"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    assets: Mapped[List["ProjectAsset"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 class ProjectLocation(Base):
     """Dominio: Ubicación y Geometría PostGIS."""
@@ -177,6 +182,7 @@ class ProjectLot(Base):
     
     identifier: Mapped[str] = mapped_column(String(50), nullable=False)
     nz_zone: Mapped[Optional[str]] = mapped_column(String(20))
+    floor_level: Mapped[Optional[int]] = mapped_column(Integer)
     area_m2: Mapped[Optional[float]] = mapped_column(Numeric)
     status: Mapped[str] = mapped_column(String(50), default="Disponible") # Disponible, Vendido, Reservado, Proceso
     price: Mapped[Optional[float]] = mapped_column(Numeric)
@@ -188,3 +194,6 @@ class ProjectLot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="lots")
+
+
+from app.db.models.project_asset import ProjectAsset  # noqa: E402,F401

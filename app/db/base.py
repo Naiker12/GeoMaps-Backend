@@ -10,6 +10,7 @@ from app.db.models.project import (
     ProjectImage, 
     ProjectModel3D
 )
+from app.db.models.project_asset import ProjectAsset
 from app.db.models.layer import Layer, LayerFeature
 from app.db.models.download import DownloadResource
 from app.db.models.api_key import (

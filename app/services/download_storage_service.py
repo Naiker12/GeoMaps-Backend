@@ -4,11 +4,12 @@ import zipfile
 import tempfile
 import os
 import mimetypes
+import uuid
 
 logger = logging.getLogger(__name__)
 from uuid import UUID
 from fastapi import UploadFile
-from app.services.storage_service import storage_service
+from app.services.storage_service import MAX_FILE_SIZE, storage_service
 
 BUCKET = "Download"
 
@@ -21,18 +22,24 @@ class DownloadStorageService:
     ) -> dict:
         """Sube el archivo al bucket Download bajo resources/{id}/"""
         content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise ValueError("Archivo demasiado grande")
+
         ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
+        safe_filename = storage_service._sanitize_filename(file.filename or "archivo")
         
         # Generar path estructurado
-        path = f"resources/{resource_id}/{file.filename}"
+        path = f"resources/{resource_id}/{uuid.uuid4()}-{safe_filename}"
         content_type = mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
 
         # Usar la instancia global de supabase del storage_service
-        storage_service.supabase.storage.from_(BUCKET).upload(
+        response = storage_service.supabase.storage.from_(BUCKET).upload(
             path=path,
             file=content,
             file_options={"content-type": content_type},
         )
+        if hasattr(response, "error") and response.error:
+            raise RuntimeError(f"Fallo en carga de descarga: {response.error}")
 
         public_url = storage_service.supabase.storage.from_(BUCKET).get_public_url(path)
 

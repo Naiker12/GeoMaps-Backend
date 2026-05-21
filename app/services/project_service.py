@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".fbx"}
 SHAPE_EXTENSIONS = {".zip", ".geojson", ".json", ".shp"}
+LOT_STATUS_ALIASES = {
+    "disponible": "Disponible",
+    "reservado": "Reservado",
+    "vendido": "Vendido",
+    "proceso": "En Proceso",
+    "en proceso": "En Proceso",
+    "en_proceso": "En Proceso",
+}
+
+
+def normalize_lot_status(status: Any) -> str:
+    value = str(status or "Disponible").strip()
+    return LOT_STATUS_ALIASES.get(value.lower(), value)
 
 
 class ProjectService:
@@ -54,6 +67,8 @@ class ProjectService:
     async def update_lot(self, lot_id: uuid.UUID, lot_in: Any) -> Any:
         """Actualiza la información (precio, estado, etc.) de un lote."""
         lot_data = lot_in.model_dump(exclude_unset=True)
+        if "status" in lot_data:
+            lot_data["status"] = normalize_lot_status(lot_data["status"])
         return await self.repository.update_lot(lot_id, lot_data)
 
     async def add_project_images(self, project_id: uuid.UUID, files: list[UploadFile]) -> list[Any]:
@@ -108,7 +123,7 @@ class ProjectService:
 
         # 1. Subir a Storage
         file.file.seek(0)
-        url = await storage_service.upload_file(file, "Shefile")
+        url = await storage_service.upload_file(file, "Shapefile")
 
         # 2. Guardar URL en project_locations
         await self.repository.update_project(project_id, {
@@ -152,7 +167,8 @@ class ProjectService:
                     name_field = col
                     break
 
-            # 7. Insertar features en project_lots y calcular envolvente del proyecto
+            # 7. Reemplazar lotes existentes e insertar nuevas features.
+            lots_replaced = await self.repository.delete_project_lots(project_id)
             lots_created = 0
             all_geoms = []
             
@@ -199,9 +215,14 @@ class ProjectService:
                 })
 
             await self.repository.db.commit()
-            logger.info(f"✅ {lots_created} lotes insertados y límites actualizados para proyecto {project_id}")
+            logger.info(
+                "Proyecto %s: %s lotes reemplazados, %s lotes insertados",
+                project_id,
+                lots_replaced,
+                lots_created,
+            )
 
         except Exception as e:
             logger.exception(f"Error procesando shapefile para proyecto {project_id}: {e}")
             await self.repository.db.rollback()
-
+            raise RuntimeError(f"No se pudo procesar el archivo cartografico: {e}") from e

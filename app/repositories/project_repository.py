@@ -5,7 +5,7 @@ Gestiona la entidad Project y sus tablas relacionadas.
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from geoalchemy2.functions import ST_GeomFromText
@@ -108,6 +108,8 @@ class ProjectRepository(BaseRepository[Project]):
         """Convierte datos crudos a formatos geométricos PostGIS."""
         if "geometry_wkt" in data:
             data["geometry"] = ST_GeomFromText(data.pop("geometry_wkt"), 4326)
+        elif isinstance(data.get("geometry"), str):
+            data["geometry"] = ST_GeomFromText(data["geometry"], 4326)
         elif data.get("latitude") and data.get("longitude"):
             lat = data.get("latitude") or (existing_loc.latitude if existing_loc else 0)
             lng = data.get("longitude") or (existing_loc.longitude if existing_loc else 0)
@@ -137,6 +139,7 @@ class ProjectRepository(BaseRepository[Project]):
             ProjectLot.id,
             ProjectLot.identifier,
             ProjectLot.nz_zone,
+            ProjectLot.floor_level,
             ProjectLot.area_m2,
             ProjectLot.status,
             ProjectLot.price,
@@ -158,6 +161,7 @@ class ProjectRepository(BaseRepository[Project]):
                     "lot_id": str(row["id"]),
                     "name": row["identifier"],
                     "nz_zone": row["nz_zone"],
+                    "floor_level": row["floor_level"],
                     "area": float(row["area_m2"]) if row["area_m2"] else None,
                     "status": row["status"] or "Disponible",
                     "price": float(row["price"]) if row["price"] else None,
@@ -186,6 +190,13 @@ class ProjectRepository(BaseRepository[Project]):
         await self.db.commit()
         return instance
 
+    async def delete_project_lots(self, project_id: uuid.UUID) -> int:
+        """Elimina lotes existentes de un proyecto dentro de la transaccion actual."""
+        result = await self.db.execute(
+            delete(ProjectLot).where(ProjectLot.project_id == project_id)
+        )
+        return result.rowcount or 0
+
     async def update_lot(self, lot_id: uuid.UUID, lot_data: dict) -> ProjectLot | None:
         """Actualiza un lote específico."""
         stmt = select(ProjectLot).where(ProjectLot.id == lot_id)
@@ -196,8 +207,7 @@ class ProjectRepository(BaseRepository[Project]):
             return None
             
         for k, v in lot_data.items():
-            if v is not None:
-                setattr(lot, k, v)
+            setattr(lot, k, v)
                 
         await self.db.commit()
         await self.db.refresh(lot)
