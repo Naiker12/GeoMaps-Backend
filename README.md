@@ -110,27 +110,6 @@ alembic/                  Migraciones.
 docs/                     Documentacion complementaria.
 ```
 
-## Servicios Del Backend
-
-| Archivo / Modulo | Responsabilidad |
-| --- | --- |
-| `app/services/project_service.py` | Gestion de proyectos, relaciones, uploads y lotes. |
-| `app/services/layer_service.py` | Carga, edicion y consulta de capas GIS. |
-| `app/services/geo_service.py` | Procesamiento geoespacial y conversion de datos. |
-| `app/services/search_service.py` | Busqueda global por texto/coordenadas. |
-| `app/services/download_service.py` | Metadatos de recursos descargables. |
-| `app/services/download_storage_service.py` | Upload/list/remove de archivos de descargas en Supabase Storage. |
-| `app/services/storage_service.py` | Servicio general de storage Supabase. |
-| `app/services/api_key_service.py` | Creacion, revocacion, estadisticas y logs de API keys. |
-| `app/services/analytics/*` | Resumenes, actividad, dashboards y metricas administrativas. |
-| `app/services/ia/agent_service.py` | Orquestacion principal del chat IA. |
-| `app/services/ia/history_service.py` | Historial de conversaciones con Redis. |
-| `app/services/ia/prompt_builder.py` | Construccion de prompts y contexto. |
-| `app/services/ia/tools_service.py` | Ejecucion de herramientas/acciones IA. |
-| `app/services/ia/usage_service.py` | Medicion de uso IA. |
-| `app/infrastructure/ia_llm_client.py` | Cliente/factory del proveedor Gemini con `google-genai`. |
-| `app/application/auth/service.py` | Sincronizacion de usuario con Supabase Auth. |
-
 ## Modelos Principales
 
 | Modelo | Tabla | Funcion |
@@ -162,12 +141,6 @@ El backend expone una API versionada bajo `/api/v1`, pero este README no mantien
 ```txt
 http://localhost:8000/api/v1/docs
 http://localhost:8000/api/v1/redoc
-```
-
-En produccion, usar la URL publica del servicio:
-
-```txt
-https://geomaps-backend.onrender.com/api/v1/docs
 ```
 
 El estado basico del servicio se valida con:
