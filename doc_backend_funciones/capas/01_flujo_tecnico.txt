@@ -1,0 +1,27 @@
+FUNCION: CAPAS
+
+Archivos principales:
+- app/api/v1/layers.py
+- app/services/layer_service.py
+- app/repositories/layer_repository.py
+- app/db/models/layer.py
+- app/schemas/layer.py
+
+Endpoints principales:
+- POST /api/v1/layers/
+- GET /api/v1/layers/categories
+- GET /api/v1/layers/categories/tree
+- GET /api/v1/layers/
+- PATCH /api/v1/layers/{layer_id}
+- GET /api/v1/layers/features/properties
+- GET /api/v1/layers/features/{feature_id}
+- GET /api/v1/layers/{layer_id}/field-values
+- GET /api/v1/layers/{layer_id}/field-stats
+- GET /api/v1/layers/{layer_id}/features
+- DELETE /api/v1/layers/{layer_id}
+
+Flujo:
+1. Usuario sube archivo GIS.
+2. LayerService procesa y guarda metadata, geometria y features.
+3. Endpoints publicos permiten listar capas publicas y leer GeoJSON.
+4. Endpoints de campos alimentan simbologia, filtros y cartografia.

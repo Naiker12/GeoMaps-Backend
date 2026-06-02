@@ -1,0 +1,15 @@
+FUNCION: HEALTH CHECK
+
+Archivo principal:
+- app/main.py
+
+Endpoint:
+- GET /health
+
+Flujo:
+1. Cliente o monitor llama /health.
+2. Backend responde status ok y version.
+
+Uso:
+- Verificar que la app FastAPI esta viva.
+- Usar en Render, Docker, balanceadores o uptime monitoring.

@@ -1,0 +1,34 @@
+FUNCION: AUTENTICACION
+
+Archivos principales:
+- app/api/routes/auth_routes.py
+- app/api/v1/auth.py
+- app/api/deps.py
+- app/core/security/jwt_handler.py
+- app/db/models/user.py
+- app/schemas/auth_schema.py
+- app/schemas/user.py
+
+Endpoints principales:
+- POST /api/v1/login
+- POST /api/v1/register
+- GET /api/v1/me
+- POST /api/v1/auth/login/supabase
+- GET /api/v1/auth/me
+- PATCH /api/v1/auth/me
+- POST /api/v1/auth/me/avatar
+- POST /api/v1/auth/logout
+- GET /api/v1/auth/sessions
+- DELETE /api/v1/auth/sessions/{session_id}
+
+Flujo:
+1. El cliente envia credenciales o token Supabase.
+2. El backend valida token local o Supabase.
+3. Se obtiene el usuario local por id o supabase_id.
+4. Las dependencias get_current_user y get_current_active_user protegen rutas privadas.
+5. Las rutas de perfil permiten consultar y actualizar datos del usuario autenticado.
+
+Dependencias:
+- Base de datos para usuarios.
+- Supabase Auth para tokens externos.
+- JWT local para login tradicional.

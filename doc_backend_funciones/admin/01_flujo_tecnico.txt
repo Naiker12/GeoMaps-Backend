@@ -1,0 +1,20 @@
+FUNCION: ADMINISTRACION
+
+Archivos principales:
+- app/api/v1/admin/__init__.py
+- app/api/v1/admin/analytics.py
+- app/api/v1/admin/api_keys.py
+- app/api/v1/admin/ia_monitoring.py
+- app/api/v1/admin/support.py
+- app/services/analytics/*
+
+Areas:
+- Analytics
+- API keys
+- IA monitoring
+- Soporte
+
+Flujo:
+1. Usuario admin consulta metricas, soporte, API keys o IA.
+2. Routers admin delegan en servicios especificos.
+3. Se devuelven resumentes, tablas, acciones administrativas y auditoria.

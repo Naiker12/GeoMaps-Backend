@@ -1,0 +1,14 @@
+FUNCION: AUTENTICACION - BUENAS PRACTICAS
+
+Buenas practicas:
+- Centralizar validacion de usuario en app/api/deps.py.
+- Mantener pruebas para login local, Supabase, token expirado y usuario inexistente.
+- Separar errores internos de mensajes para cliente.
+- Auditar cambios de perfil sensibles.
+- Documentar claramente que rutas aceptan Bearer token y cuales aceptan cookie.
+
+Mejoras sugeridas:
+- Rate limit por IP y por usuario en login.
+- Rotacion de refresh tokens si se usan sesiones persistentes.
+- Endpoint de revocacion global de sesiones.
+- Pruebas de CORS con frontend en puertos Vite variables.

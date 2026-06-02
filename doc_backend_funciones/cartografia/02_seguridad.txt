@@ -1,0 +1,19 @@
+FUNCION: CARTOGRAFIA - SEGURIDAD
+
+Controles actuales:
+- Endpoint requiere usuario autenticado.
+- layer_id y secondary_layer_id son UUID.
+- filter_field, label_field y attribute_fields se usan sobre diccionarios en memoria.
+- Archivos temporales se limpian con BackgroundTasks diferido.
+
+Riesgos:
+- Capas grandes pueden consumir memoria o CPU en render PDF/PNG.
+- Descarga de basemap depende de servicio externo.
+- label_field puede generar mapas ilegibles si se etiqueta demasiado.
+- Si la capa contiene datos sensibles y es accesible, se puede exportar.
+
+Recomendaciones:
+- Verificar permisos de acceso a la capa antes de exportar.
+- Limitar max features o usar jobs asincronos para capas grandes.
+- Mantener timeout de basemap y fallback local.
+- No loguear payloads completos con atributos sensibles.

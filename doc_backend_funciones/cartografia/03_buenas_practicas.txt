@@ -1,0 +1,14 @@
+FUNCION: CARTOGRAFIA - BUENAS PRACTICAS
+
+Buenas practicas:
+- Mantener helpers separados para basemap y borde.
+- Usar defaults en schema para no romper clientes viejos.
+- Validar salida PDF, PNG y GeoJSON por separado.
+- Mantener etiquetas opcionales y limitadas.
+- Conservar PNG como mapa puro sin tabla.
+
+Mejoras sugeridas:
+- Job asincrono para exportaciones grandes.
+- Cache temporal de basemaps por bbox/estilo.
+- Selector de escala real aplicado al backend.
+- Leyenda configurable y control de etiquetas por densidad.

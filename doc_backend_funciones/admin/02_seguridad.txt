@@ -1,0 +1,12 @@
+FUNCION: ADMINISTRACION - SEGURIDAD
+
+Riesgos:
+- Si falta validacion de rol, cualquier usuario podria ver datos sensibles.
+- Endpoints admin concentran operaciones destructivas.
+- Analytics puede exponer usuarios, consumo y actividad.
+
+Recomendaciones:
+- Todas las rutas admin deben validar rol admin/superadmin.
+- Auditoria obligatoria para deletes, revokes y cambios de settings.
+- Paginacion y filtros para evitar extraccion masiva.
+- No exponer secretos ni tokens en paneles.

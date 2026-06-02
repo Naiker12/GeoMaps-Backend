@@ -1,0 +1,13 @@
+FUNCION: REPORTES - SEGURIDAD
+
+Riesgos:
+- Reportes pueden incluir datos privados.
+- Descarga por report_id puede filtrar archivos de otros usuarios.
+- Plantillas pueden inyectar contenido si no se escapa.
+- Generacion pesada puede saturar CPU.
+
+Recomendaciones:
+- Validar ownership en status y download.
+- Firmar URLs o usar tokens temporales.
+- Sanitizar contenido antes de plantillas.
+- Limitar concurrencia y tamano.

@@ -1,0 +1,46 @@
+INVENTARIO GENERAL DE ENDPOINTS BACKEND
+Fecha: 2026-06-02
+
+Origen revisado:
+- app/main.py
+- app/api/routes/*.py
+- app/api/v1/*.py
+- app/api/v1/endpoints/*.py
+- app/api/v1/admin/*.py
+
+Rutas base registradas en app/main.py:
+- /api/v1
+- /api/v1/projects
+- /api/v1/layers
+- /api/v1/resources
+- /api/v1/search
+- /api/v1/cartografia
+- /api/v1/support
+- /api/v1/ogc
+- /api/v1/keys
+- /api/v1/ia
+- /api/v1/reports
+- /health
+
+Funciones documentadas:
+1. auth: login, registro, perfil, Supabase, sesiones y logout.
+2. usuarios: CRUD y perfil de usuarios. Revisar si todas las rutas estan registradas en main.py antes de exponer.
+3. proyectos: proyectos, assets, modelos 3D, imagenes, shapefiles y lotes.
+4. capas: upload GIS, categorias, GeoJSON, campos, stats y eliminacion.
+5. cartografia: generacion de PDF, PNG y GeoJSON desde capas GIS.
+6. descargas: recursos descargables, upload manual, listado admin y public.
+7. busqueda: busqueda, sugerencias y registro de vistos.
+8. soporte: solicitudes de soporte y panel admin.
+9. ogc: proxy OGC para servicios externos.
+10. api_keys: claves API de usuario, estadisticas y administracion.
+11. ia: chat, stream, conversaciones, transcripcion, herramientas y monitoreo admin.
+12. reportes: generacion, estado, descarga y tipos de reportes.
+13. admin: analytics, API keys admin, IA monitoring y soporte admin.
+14. health: verificacion simple del servicio.
+
+Pendientes recomendados para segunda pasada:
+- Revisar permisos reales por cada ruta admin.
+- Verificar ownership en proyectos, capas, reportes y descargas.
+- Revisar limites de tamano para uploads y exportaciones.
+- Crear checklist de pruebas automatizadas por funcion.
+- Crear documentacion equivalente del frontend conectada a cada funcion.

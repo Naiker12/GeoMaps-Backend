@@ -1,0 +1,20 @@
+FUNCION: SOPORTE
+
+Archivos principales:
+- app/api/v1/support.py
+- app/api/v1/admin/support.py
+- app/services/support_service.py
+- app/schemas/support.py
+
+Endpoints principales:
+- POST /api/v1/support/
+- GET /api/v1/admin/support/
+- GET /api/v1/admin/support/{request_id}
+- PATCH /api/v1/admin/support/{request_id}
+- POST /api/v1/admin/support/{request_id}/reply
+- DELETE /api/v1/admin/support/{request_id}
+
+Flujo:
+1. Usuario crea solicitud de soporte.
+2. Admin lista, revisa, actualiza, responde o elimina solicitudes.
+3. SupportService concentra persistencia y posible envio de email.

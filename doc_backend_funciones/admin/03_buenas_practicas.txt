@@ -1,0 +1,12 @@
+FUNCION: ADMINISTRACION - BUENAS PRACTICAS
+
+Buenas practicas:
+- Router admin separado del usuario final.
+- Servicios de analytics separados por dominio.
+- Respuestas paginadas.
+- Logs con actor, accion, target y fecha.
+
+Mejoras sugeridas:
+- Permisos granulares por modulo admin.
+- Export de auditoria.
+- Alertas de acciones criticas.

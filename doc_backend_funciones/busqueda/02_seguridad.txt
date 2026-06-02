@@ -1,0 +1,12 @@
+FUNCION: BUSQUEDA - SEGURIDAD
+
+Riesgos:
+- Busqueda puede filtrar informacion privada si no respeta visibilidad.
+- Query libre puede impactar rendimiento.
+- Registro de vistos puede permitir tracking excesivo.
+
+Recomendaciones:
+- Aplicar permisos y visibilidad en todos los resultados.
+- Limitar longitud de query.
+- Rate limit para busquedas repetitivas.
+- No exponer datos internos en sugerencias.

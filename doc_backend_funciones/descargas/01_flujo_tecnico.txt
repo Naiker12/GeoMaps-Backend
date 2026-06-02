@@ -1,0 +1,22 @@
+FUNCION: DESCARGAS Y RECURSOS
+
+Archivos principales:
+- app/api/v1/downloads.py
+- app/services/download_service.py
+- app/services/download_storage_service.py
+- app/repositories/download_repository.py
+- app/schemas/download.py
+
+Endpoints principales:
+- POST /api/v1/resources/
+- POST /api/v1/resources/{resource_id}/upload
+- GET /api/v1/resources/
+- GET /api/v1/resources/public
+- DELETE /api/v1/resources/{download_id}
+
+Flujo:
+1. Admin crea registro de recurso.
+2. Si el recurso no esta vinculado a capa, puede subir archivo manual.
+3. Storage analiza metadata y sube archivo.
+4. Public endpoint agrupa recursos por categoria.
+5. Delete elimina archivo fisico y registro.

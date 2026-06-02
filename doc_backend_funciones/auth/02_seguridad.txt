@@ -1,0 +1,20 @@
+FUNCION: AUTENTICACION - SEGURIDAD
+
+Controles actuales:
+- Las rutas privadas usan Depends(get_current_active_user).
+- Se valida token local y luego token Supabase.
+- Si el token no tiene sub o no existe usuario local, se rechaza.
+- El avatar y perfil pasan por usuario autenticado.
+
+Riesgos:
+- Doble fuente de identidad: token local y Supabase deben mantenerse alineados.
+- Mensajes de error muy especificos pueden revelar si un usuario existe.
+- Las sesiones deben invalidarse correctamente al cerrar sesion.
+- Upload de avatar debe validar tipo, tamano y nombre de archivo.
+
+Recomendaciones:
+- No confiar en datos del cliente para rol o user_id.
+- Validar expiracion y firma de todos los tokens.
+- Registrar intentos fallidos de login con rate limit.
+- Evitar devolver tokens en logs.
+- Verificar que cookies tengan Secure, HttpOnly y SameSite cuando aplique.

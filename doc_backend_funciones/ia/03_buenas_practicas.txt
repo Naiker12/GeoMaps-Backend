@@ -1,0 +1,14 @@
+FUNCION: IA - BUENAS PRACTICAS
+
+Buenas practicas:
+- Prompt builder centralizado.
+- Registro de uso por usuario.
+- Pruebas de herramientas con permisos.
+- Streaming con manejo de cancelacion.
+- Fallback si el proveedor IA falla.
+
+Mejoras sugeridas:
+- Evaluaciones automaticas de calidad.
+- Redaccion de PII antes de enviar al modelo.
+- Presupuestos por usuario/organizacion.
+- Versionado de prompts.

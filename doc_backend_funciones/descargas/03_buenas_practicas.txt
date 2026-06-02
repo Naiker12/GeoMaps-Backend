@@ -1,0 +1,13 @@
+FUNCION: DESCARGAS - BUENAS PRACTICAS
+
+Buenas practicas:
+- Separar registro DB y subida fisica.
+- Reiniciar cursor del UploadFile antes de subir.
+- Guardar file_size, file_format y content_count.
+- Probar fallos entre storage y DB.
+
+Mejoras sugeridas:
+- Uploads por chunks.
+- URLs firmadas para recursos no publicos.
+- Limpieza de archivos huerfanos.
+- Versionado de recursos descargables.

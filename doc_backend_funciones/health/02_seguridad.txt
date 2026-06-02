@@ -1,0 +1,13 @@
+FUNCION: HEALTH CHECK - SEGURIDAD
+
+Controles:
+- No requiere autenticacion.
+- No devuelve datos sensibles.
+
+Riesgos:
+- Si se agregan detalles de DB, variables o servicios internos, puede filtrar informacion.
+
+Recomendaciones:
+- Mantener respuesta minima.
+- No exponer stack, hostname, secrets ni configuracion.
+- Si hay health profundo, protegerlo o separarlo.

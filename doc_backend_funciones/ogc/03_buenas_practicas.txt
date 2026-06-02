@@ -1,0 +1,12 @@
+FUNCION: OGC - BUENAS PRACTICAS
+
+Buenas practicas:
+- Cache por URL normalizada.
+- Validar parametros service, request, layers, bbox y format.
+- Registrar origen y duracion del proxy.
+- Manejar errores externos sin exponer stacktrace.
+
+Mejoras sugeridas:
+- Lista administrable de proveedores OGC.
+- Circuit breaker para servicios lentos.
+- Transformacion controlada de CRS si aplica.

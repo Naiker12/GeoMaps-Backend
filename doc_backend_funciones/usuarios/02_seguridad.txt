@@ -1,0 +1,17 @@
+FUNCION: USUARIOS - SEGURIDAD
+
+Controles esperados:
+- Usuario autenticado para leer o editar su propio perfil.
+- Rol admin para listar, editar o eliminar otros usuarios.
+- Validacion de UUID en rutas con user_id.
+
+Riesgos:
+- Escalada de privilegios si un usuario puede editar role/is_admin.
+- Eliminacion accidental de usuarios con recursos asociados.
+- Exposicion de datos sensibles en listados.
+
+Recomendaciones:
+- Bloquear actualizacion de campos sensibles desde endpoints publicos.
+- Validar ownership o rol admin.
+- No devolver hashes, tokens ni datos internos.
+- Usar borrado logico si existen relaciones historicas.

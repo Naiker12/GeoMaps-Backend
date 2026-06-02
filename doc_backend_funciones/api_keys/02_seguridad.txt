@@ -1,0 +1,20 @@
+FUNCION: API KEYS - SEGURIDAD
+
+Controles actuales:
+- La clave cruda se muestra solo al crear.
+- Se usa hash para validar key.
+- Rutas de usuario requieren autenticacion.
+- Rutas admin deben requerir rol admin.
+
+Riesgos:
+- Filtracion de API key en logs, navegador o historial.
+- Falta de rate limit por key.
+- Uso desde IP no autorizada.
+- Eliminacion/revocacion sin auditoria.
+
+Recomendaciones:
+- Nunca guardar clave cruda.
+- Enmascarar keys en logs y respuestas.
+- Rate limit por key y por usuario.
+- Permitir rotacion y expiracion.
+- Auditar creacion, revocacion y cambios admin.

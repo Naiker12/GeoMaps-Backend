@@ -1,0 +1,13 @@
+FUNCION: CAPAS - BUENAS PRACTICAS
+
+Buenas practicas:
+- Mantener procesamiento GIS fuera del router.
+- Indexar layer_id y geometria en PostGIS.
+- Retornar GeoJSON por streaming o paginado si la capa es grande.
+- Mantener categorias y subcategorias normalizadas.
+
+Mejoras sugeridas:
+- Simplificacion geometrica por zoom.
+- Cache para categories/tree y field-values.
+- Jobs asincronos para uploads grandes.
+- Tests con GeoJSON, SHP y geometria invalida.

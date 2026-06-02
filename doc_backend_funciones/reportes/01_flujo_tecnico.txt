@@ -1,0 +1,22 @@
+FUNCION: REPORTES
+
+Archivos principales:
+- app/api/v1/endpoints/report_router.py
+- app/services/report/report_engine.py
+- app/services/report/data_builder.py
+- app/services/export/typst_service.py
+- app/services/export/technical_assets_service.py
+- app/schemas/report_schemas.py
+
+Endpoints principales:
+- POST /api/v1/reports/generate
+- GET /api/v1/reports/status/{report_id}
+- GET /api/v1/reports/download/{report_id}
+- GET /api/v1/reports/types
+
+Flujo:
+1. Usuario solicita generacion de reporte.
+2. DataBuilder recolecta datos.
+3. ReportEngine arma salida.
+4. Servicio de export genera documento.
+5. Cliente consulta estado y descarga.

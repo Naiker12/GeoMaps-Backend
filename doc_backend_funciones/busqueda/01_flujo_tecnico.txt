@@ -1,0 +1,15 @@
+FUNCION: BUSQUEDA
+
+Archivos principales:
+- app/api/v1/search.py
+- app/services/search_service.py
+
+Endpoints principales:
+- GET /api/v1/search/
+- GET /api/v1/search/suggestions
+- POST /api/v1/search/viewed
+
+Flujo:
+1. Cliente envia texto de busqueda o solicita sugerencias.
+2. SearchService consulta entidades/capas/proyectos segun implementacion.
+3. viewed registra elementos vistos para mejorar experiencia.

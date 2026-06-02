@@ -1,0 +1,15 @@
+FUNCION: OGC
+
+Archivos principales:
+- app/api/v1/ogc.py
+
+Endpoint principal:
+- GET /api/v1/ogc/proxy
+
+Flujo:
+1. Cliente solicita recurso OGC mediante proxy.
+2. Backend valida parametros y reenvia solicitud al servicio externo.
+3. Responde al cliente con el contenido recibido.
+
+Uso esperado:
+- Consumir WMS/WFS u otros recursos geoespaciales evitando problemas de CORS cliente.

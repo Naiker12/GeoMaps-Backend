@@ -1,0 +1,18 @@
+FUNCION: CAPAS - SEGURIDAD
+
+Controles actuales:
+- Upload requiere usuario activo.
+- Listado anonimo fuerza visibility PUBLIC.
+- UUID en rutas reduce IDs invalidos.
+
+Riesgos:
+- Carga de archivos GIS pesados.
+- GeoJSON publico puede exponer datos sensibles si la capa se publica por error.
+- field-values y field-stats reciben nombre de campo desde cliente.
+- Eliminacion de capas puede afectar cartografia, descargas y proyectos.
+
+Recomendaciones:
+- Validar extension, tipo MIME y tamano de uploads.
+- Limitar cantidad de features procesadas por request.
+- Whitelist de campos detectados antes de consultar stats/valores.
+- Verificar ownership para update/delete.

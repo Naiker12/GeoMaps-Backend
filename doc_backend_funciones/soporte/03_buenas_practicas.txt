@@ -1,0 +1,12 @@
+FUNCION: SOPORTE - BUENAS PRACTICAS
+
+Buenas practicas:
+- Estados claros: abierto, en proceso, resuelto, cerrado.
+- Historial de respuestas.
+- Paginacion en panel admin.
+- Plantillas de email seguras.
+
+Mejoras sugeridas:
+- Adjuntos con validacion.
+- SLA y prioridad.
+- Busqueda por usuario, estado y fecha.

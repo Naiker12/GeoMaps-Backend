@@ -1,0 +1,13 @@
+FUNCION: REPORTES - BUENAS PRACTICAS
+
+Buenas practicas:
+- Generacion asincrona para documentos pesados.
+- Estado persistente: pending, running, done, failed.
+- Limpieza de temporales.
+- Tests por tipo de reporte.
+
+Mejoras sugeridas:
+- Cola de trabajos.
+- Reintentos controlados.
+- Plantillas versionadas.
+- Preview ligero antes de generar final.

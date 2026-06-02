@@ -1,0 +1,22 @@
+FUNCION: CARTOGRAFIA
+
+Archivos principales:
+- app/api/v1/cartografia.py
+- app/schemas/cartografia.py
+- app/services/cartografia_service.py
+- app/services/cartografia_basemap.py
+- app/services/cartografia_border.py
+- app/repositories/layer_repository.py
+
+Endpoint:
+- POST /api/v1/cartografia/generate
+
+Flujo:
+1. Frontend envia layer_id, filtros, formato, estilos, colores y etiqueta.
+2. Router valida usuario autenticado.
+3. CartografiaService obtiene features desde LayerRepository.
+4. Aplica filtro, atributos, segunda capa y label_field.
+5. Si formato es GeoJSON, escribe archivo temporal.
+6. Si formato es PDF o PNG, renderiza mapa con Matplotlib.
+7. Basemap se descarga desde ArcGIS si esta disponible.
+8. El archivo se responde con FileResponse y limpieza diferida.

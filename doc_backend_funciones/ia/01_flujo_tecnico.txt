@@ -1,0 +1,33 @@
+FUNCION: IA
+
+Archivos principales:
+- app/api/v1/endpoints/ia_router.py
+- app/api/v1/admin/ia_monitoring.py
+- app/services/ia/*
+- app/schemas/ia.py
+
+Endpoints usuario:
+- POST /api/v1/ia/chat
+- POST /api/v1/ia/chat/stream
+- GET /api/v1/ia/models
+- GET /api/v1/ia/conversations
+- GET /api/v1/ia/conversations/{conversation_id}/messages
+- DELETE /api/v1/ia/conversations
+- DELETE /api/v1/ia/conversations/{conversation_id}
+- GET /api/v1/ia/suggestions
+- GET /api/v1/ia/usage
+- POST /api/v1/ia/transcribe
+
+Endpoints admin:
+- GET /api/v1/admin/ia-monitoring/stats
+- GET /api/v1/admin/ia-monitoring/audit-logs
+- GET /api/v1/admin/ia-monitoring/models
+- POST /api/v1/admin/ia-monitoring/models
+- PATCH /api/v1/admin/ia-monitoring/models/{model_uuid}
+- DELETE /api/v1/admin/ia-monitoring/models/{model_uuid}
+
+Flujo:
+1. Usuario envia chat, stream o audio.
+2. Servicios de IA clasifican intencion, construyen prompt y ejecutan herramientas.
+3. Se guardan conversaciones, mensajes, uso y auditoria.
+4. Admin monitorea uso, modelos y logs.

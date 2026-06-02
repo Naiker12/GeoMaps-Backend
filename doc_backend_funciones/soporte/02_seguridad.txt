@@ -1,0 +1,13 @@
+FUNCION: SOPORTE - SEGURIDAD
+
+Riesgos:
+- Mensajes pueden contener datos personales.
+- Endpoints admin deben estar protegidos por rol.
+- Respuestas pueden disparar emails externos.
+- Campos libres pueden generar HTML/script si se renderizan sin escape.
+
+Recomendaciones:
+- Validar rol admin en rutas de administracion.
+- Escapar contenido al mostrar en frontend.
+- No incluir secretos en respuestas de soporte.
+- Auditar quien responde y cambia estado.

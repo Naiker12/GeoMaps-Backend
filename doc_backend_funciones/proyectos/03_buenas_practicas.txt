@@ -1,0 +1,13 @@
+FUNCION: PROYECTOS - BUENAS PRACTICAS
+
+Buenas practicas:
+- Mantener servicios separados por dominio: proyecto, assets, storage.
+- Usar transacciones cuando se creen DB + storage juntos.
+- Probar rollback si falla upload o DB.
+- Paginacion en listados de assets.
+
+Mejoras sugeridas:
+- Auditoria por proyecto.
+- Versionado de assets.
+- Validacion geometrica para shapefiles.
+- Limpieza automatica de assets huerfanos.

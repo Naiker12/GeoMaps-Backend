@@ -1,0 +1,11 @@
+FUNCION: OGC - SEGURIDAD
+
+Riesgo principal:
+- Proxy abierto puede convertirse en SSRF si permite cualquier URL.
+
+Recomendaciones:
+- Usar allowlist de dominios OGC permitidos.
+- Bloquear IPs privadas, localhost y metadata cloud.
+- Limitar metodos a GET.
+- Timeout corto y limite de tamano de respuesta.
+- No reenviar headers sensibles del usuario.

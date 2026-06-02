@@ -1,0 +1,32 @@
+FUNCION: API KEYS
+
+Archivos principales:
+- app/api/v1/api_keys.py
+- app/api/v1/admin/api_keys.py
+- app/services/api_key_service.py
+- app/repositories/api_key/*
+- app/schemas/api_key.py
+- app/db/models/api_key.py
+
+Endpoints usuario:
+- POST /api/v1/keys/
+- GET /api/v1/keys/
+- PATCH /api/v1/keys/{key_id}/revoke
+- GET /api/v1/keys/stats
+- DELETE /api/v1/keys/{key_id}
+
+Endpoints admin:
+- GET /api/v1/admin/api-keys/
+- POST /api/v1/admin/api-keys/
+- PATCH /api/v1/admin/api-keys/{key_id}/revoke
+- GET /api/v1/admin/api-keys/stats/overview
+- DELETE /api/v1/admin/api-keys/{key_id}
+- PATCH /api/v1/admin/api-keys/settings/rate-limit
+- POST /api/v1/admin/api-keys/settings/pause
+- PUT /api/v1/admin/api-keys/settings/ip-whitelist
+
+Flujo:
+1. Usuario crea API key.
+2. Backend devuelve clave cruda solo una vez.
+3. Se guarda hash y metadata.
+4. Middleware registra uso cuando se envia X-API-Key.

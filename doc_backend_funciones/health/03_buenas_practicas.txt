@@ -1,0 +1,11 @@
+FUNCION: HEALTH CHECK - BUENAS PRACTICAS
+
+Buenas practicas:
+- Respuesta rapida y sin consultas costosas.
+- Version simple.
+- Endpoint estable para monitoreo.
+
+Mejoras sugeridas:
+- /ready para readiness con DB/cache.
+- /health solo para liveness.
+- Medicion externa de latencia.

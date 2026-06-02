@@ -1,0 +1,13 @@
+FUNCION: API KEYS - BUENAS PRACTICAS
+
+Buenas practicas:
+- Separar repositorios de uso, stats, settings y keys.
+- Respuesta de creacion con key visible una vez.
+- Estadisticas por usuario y globales.
+- Tests de revocacion y permisos cruzados.
+
+Mejoras sugeridas:
+- Scopes por endpoint.
+- Expiracion configurable.
+- Whitelist de IP por key.
+- Alertas por uso anomalo.

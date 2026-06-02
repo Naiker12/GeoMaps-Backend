@@ -1,0 +1,12 @@
+FUNCION: BUSQUEDA - BUENAS PRACTICAS
+
+Buenas practicas:
+- Normalizar texto de busqueda.
+- Paginacion y ranking estable.
+- Cache para sugerencias frecuentes.
+- Tests de visibilidad publica/privada.
+
+Mejoras sugeridas:
+- Indices full-text.
+- Busqueda espacial por bbox.
+- Analitica anonima de busquedas sin resultados.

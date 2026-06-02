@@ -428,16 +428,16 @@ class CartografiaService:
         font_size = 6.2
         max_labels = 90
         if feature_count > 160:
-            font_size = 4.2
-            max_labels = 35
+            font_size = 3.4
+            max_labels = 120
         elif feature_count > 100:
-            font_size = 4.8
-            max_labels = 50
+            font_size = 4.0
+            max_labels = 95
         elif feature_count > 60:
-            font_size = 5.3
-            max_labels = 70
+            font_size = 4.6
+            max_labels = 80
 
-        seen_labels: set[str] = set()
+        seen_candidates: set[str] = set()
         label_candidates = []
         for feature in features:
             properties = feature.get("properties") or {}
@@ -445,9 +445,9 @@ class CartografiaService:
             if not label:
                 continue
             normalized = label.upper()
-            if normalized in seen_labels:
+            if normalized in seen_candidates:
                 continue
-            seen_labels.add(normalized)
+            seen_candidates.add(normalized)
 
             geometry = feature.get("geometry")
             if not geometry:
@@ -464,6 +464,7 @@ class CartografiaService:
                 continue
             label_candidates.append((self._label_weight(geom), point, label))
 
+        drawn_count = 0
         for _weight, point, label in sorted(label_candidates, key=lambda item: item[0], reverse=True):
             ax.text(
                 point.x,
@@ -480,7 +481,8 @@ class CartografiaService:
                 ],
                 clip_on=True,
             )
-            if len(seen_labels) >= max_labels:
+            drawn_count += 1
+            if drawn_count >= max_labels:
                 break
 
     def _label_point(self, geom: Any) -> Any | None:
@@ -503,7 +505,7 @@ class CartografiaService:
 
     def _truncate_label(self, label: str) -> str:
         value = " ".join(label.split())
-        return value if len(value) <= 20 else f"{value[:18]}..."
+        return value if len(value) <= 16 else f"{value[:14]}..."
 
     def _build_attribute_page(
         self,

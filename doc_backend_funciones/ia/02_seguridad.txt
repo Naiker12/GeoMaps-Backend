@@ -1,0 +1,15 @@
+FUNCION: IA - SEGURIDAD
+
+Riesgos:
+- Prompt injection.
+- Exposicion de datos privados de capas/proyectos.
+- Herramientas IA ejecutando acciones no autorizadas.
+- Costos altos por abuso.
+- Audio/transcripcion con datos sensibles.
+
+Recomendaciones:
+- Validar permisos antes de toda herramienta.
+- No pasar secretos al modelo.
+- Limitar tokens, frecuencia y tamanos de audio.
+- Auditar prompts, herramientas y respuestas.
+- Separar herramientas de lectura y escritura.

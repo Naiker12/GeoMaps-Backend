@@ -1,0 +1,18 @@
+FUNCION: DESCARGAS - SEGURIDAD
+
+Controles actuales:
+- Crear, subir, listar admin y borrar requieren usuario activo.
+- Public solo lista recursos marcados como publicos.
+- Upload valida extensiones permitidas.
+
+Riesgos:
+- Extension no garantiza tipo real de archivo.
+- Archivos grandes pueden agotar memoria.
+- URL publica puede exponer recursos privados si metadata esta mal.
+- Delete debe limpiar storage y DB de forma consistente.
+
+Recomendaciones:
+- Validar MIME y magic bytes.
+- Limitar tamano maximo.
+- Usar antivirus o escaneo si hay archivos externos.
+- Evitar subir manualmente recursos vinculados a capas.
