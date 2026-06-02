@@ -89,10 +89,11 @@ ALLOWED_ORIGINS = sorted(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["X-Process-Time"],
+    expose_headers=["X-Process-Time", "X-Generated-By", "Content-Disposition"],
 )
 
 

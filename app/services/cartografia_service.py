@@ -7,7 +7,6 @@ import logging
 import math
 import tempfile
 import uuid
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +15,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.layer_repository import LayerRepository
 from app.schemas.cartografia import CartografiaGenerateRequest
+from app.services.cartografia_basemap import draw_basemap
+from app.services.cartografia_border import draw_border
 
 logger = logging.getLogger(__name__)
+
+ROUTE_PALETTE = (
+    "#22C55E",
+    "#38BDF8",
+    "#F97316",
+    "#A78BFA",
+    "#EC4899",
+    "#84CC16",
+    "#F59E0B",
+    "#06B6D4",
+    "#6366F1",
+    "#EF4444",
+    "#14B8A6",
+    "#EAB308",
+)
 
 
 class CartografiaService:
@@ -171,7 +187,21 @@ class CartografiaService:
 
         features = payload["geojson"]["features"]
         secondary_features = (payload.get("secondary_layer") or {}).get("geojson", {}).get("features", [])
-        table_rows = self._attribute_rows(features, payload["attributes"])
+
+        if request.output_format == "png":
+            fig, ax = self._build_map_only_figure(plt, width, height)
+            await self._draw_map_content(ax, plt, features, secondary_features, request, include_decorations=False)
+            fig.savefig(output.name, bbox_inches="tight", pad_inches=0.02)
+            plt.close(fig)
+            return output.name
+
+        separate_attribute_page = request.output_format == "pdf" and request.attributes_on_separate_page
+        attribute_table_rows = self._attribute_rows(
+            features,
+            payload["attributes"],
+            max_features=None if separate_attribute_page else 8,
+        )
+        table_rows = [] if separate_attribute_page else attribute_table_rows
 
         table_height = 1.05 if table_rows else 0.18
         fig = plt.figure(figsize=(width, height), dpi=180)
@@ -212,37 +242,7 @@ class CartografiaService:
         ax = fig.add_subplot(grid[1])
         ax.set_facecolor("#F8FAFC")
 
-        self._set_map_extent(ax, [*secondary_features, *features])
-        await self._draw_basemap(ax, plt)
-
-        if secondary_features:
-            self._draw_features(
-                ax,
-                secondary_features,
-                point_color="#F97316",
-                line_color="#F97316",
-                polygon_color="#FDBA74",
-                polygon_edge="#9A3412",
-                alpha=0.18,
-                linewidth=0.7,
-            )
-        self._draw_features(ax, features, alpha=0.2)
-
-        self._draw_north_arrow(ax)
-        self._draw_scale_bar(ax)
-        ax.grid(True, linestyle="--", linewidth=0.35, color="#FFFFFF", alpha=0.28)
-        ax.tick_params(
-            axis="both",
-            which="both",
-            bottom=False,
-            left=False,
-            labelbottom=False,
-            labelleft=False,
-        )
-        ax.set_aspect("equal", adjustable="box")
-        for spine in ax.spines.values():
-            spine.set_color("#475569")
-            spine.set_linewidth(0.7)
+        await self._draw_map_content(ax, plt, features, secondary_features, request)
 
         table_ax = fig.add_subplot(grid[2])
         table_ax.axis("off")
@@ -261,66 +261,327 @@ class CartografiaService:
             va="center",
         )
 
-        fig.savefig(output.name, bbox_inches="tight")
-        plt.close(fig)
+        draw_border(fig, request.border_style)
+
+        if separate_attribute_page:
+            from matplotlib.backends.backend_pdf import PdfPages
+
+            with PdfPages(output.name) as pdf:
+                pdf.savefig(fig)
+                plt.close(fig)
+                table_pages = self._chunk_attribute_rows(
+                    attribute_table_rows,
+                    rows_per_page=self._table_rows_per_page(request.page_size, request.orientation),
+                )
+                for page_index, page_rows in enumerate(table_pages, start=1):
+                    table_fig = self._build_attribute_page(
+                        plt,
+                        payload,
+                        request,
+                        page_rows,
+                        width,
+                        height,
+                        page_index,
+                        len(table_pages),
+                    )
+                    pdf.savefig(table_fig)
+                    plt.close(table_fig)
+        else:
+            fig.savefig(output.name)
+            plt.close(fig)
         return output.name
 
-    async def _draw_basemap(self, ax: Any, plt: Any) -> None:
-        xmin, xmax = ax.get_xlim()
-        ymin, ymax = ax.get_ylim()
-        if xmin == xmax or ymin == ymax:
-            self._draw_context_background(ax)
+    def _build_map_only_figure(self, plt: Any, width: float, height: float) -> tuple[Any, Any]:
+        fig = plt.figure(figsize=(width, height), dpi=220)
+        fig.patch.set_facecolor("white")
+        ax = fig.add_axes([0.025, 0.025, 0.95, 0.95])
+        ax.set_facecolor("#F8FAFC")
+        return fig, ax
+
+    async def _draw_map_content(
+        self,
+        ax: Any,
+        plt: Any,
+        features: list[dict[str, Any]],
+        secondary_features: list[dict[str, Any]],
+        request: CartografiaGenerateRequest,
+        include_decorations: bool = True,
+    ) -> None:
+        self._set_map_extent(ax, [*secondary_features, *features])
+        has_basemap = await self._draw_basemap(ax, plt, request.map_style)
+        primary_color = self._safe_hex_color(request.primary_color)
+        secondary_color = self._safe_hex_color(request.secondary_color)
+        primary_edge = self._darken_hex_color(primary_color, 0.58) if primary_color else "#15803D"
+        secondary_edge = self._darken_hex_color(secondary_color, 0.58) if secondary_color else "#9A3412"
+        show_primary_arrows = self._should_show_route_arrows(features, request)
+        polygon_alpha = self._polygon_alpha(has_basemap, include_decorations)
+        polygon_linewidth = 0.7 if include_decorations else 1.05
+
+        if secondary_features:
+            self._draw_features(
+                ax,
+                secondary_features,
+                point_color=secondary_color or "#F97316",
+                line_color=secondary_color or "#F97316",
+                polygon_color=secondary_color or "#FDBA74",
+                polygon_edge=secondary_edge,
+                alpha=max(polygon_alpha * 0.75, 0.12),
+                linewidth=0.7,
+                use_route_palette=secondary_color is None,
+                show_direction_arrows=False,
+            )
+        self._draw_features(
+            ax,
+            features,
+            point_color=primary_color or "#65A30D",
+            line_color=primary_color or "#2563EB",
+            polygon_color=primary_color or "#86EFAC",
+            polygon_edge=primary_edge,
+            alpha=polygon_alpha,
+            linewidth=polygon_linewidth,
+            use_route_palette=primary_color is None,
+            show_direction_arrows=show_primary_arrows,
+        )
+        self._draw_feature_labels(ax, features, request.label_field)
+
+        if include_decorations:
+            self._draw_north_arrow(ax)
+            self._draw_scale_bar(ax)
+            ax.grid(True, linestyle="--", linewidth=0.25, color="#FFFFFF", alpha=0.14)
+        ax.tick_params(
+            axis="both",
+            which="both",
+            bottom=False,
+            left=False,
+            labelbottom=False,
+            labelleft=False,
+        )
+        ax.set_aspect("auto")
+        for spine in ax.spines.values():
+            spine.set_color("#475569")
+            spine.set_linewidth(0.7)
+
+    def _polygon_alpha(self, has_basemap: bool, include_decorations: bool) -> float:
+        if has_basemap:
+            return 0.10 if include_decorations else 0.08
+        return 0.24 if include_decorations else 0.20
+
+    def _should_show_route_arrows(
+        self,
+        features: list[dict[str, Any]],
+        request: CartografiaGenerateRequest,
+    ) -> bool:
+        if request.data_scope != "filtered" or len(features) > 80:
+            return False
+
+        route_keys: set[str] = set()
+        for feature in features:
+            properties = feature.get("properties") or {}
+            raw_key = (
+                properties.get("cod_ruta")
+                or properties.get("COD_RUTA")
+                or properties.get("ruta")
+                or properties.get("RUTA")
+                or properties.get("name")
+                or properties.get("NAME")
+            )
+            key = str(raw_key or "").strip()
+            if key:
+                route_keys.add(key)
+            if len(route_keys) > 4:
+                return False
+        return bool(route_keys)
+
+    def _safe_hex_color(self, color: str | None) -> str | None:
+        if not color:
+            return None
+        value = color.strip()
+        if len(value) == 7 and value.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in value[1:]):
+            return value
+        return None
+
+    def _darken_hex_color(self, color: str | None, factor: float) -> str:
+        if not color:
+            return "#15803D"
+        factor = min(max(factor, 0.0), 1.0)
+        red = int(color[1:3], 16)
+        green = int(color[3:5], 16)
+        blue = int(color[5:7], 16)
+        return f"#{int(red * factor):02X}{int(green * factor):02X}{int(blue * factor):02X}"
+
+    def _draw_feature_labels(
+        self,
+        ax: Any,
+        features: list[dict[str, Any]],
+        label_field: str | None,
+    ) -> None:
+        if not label_field or not features:
             return
 
-        base_params = {
-            "bbox": f"{xmin},{ymin},{xmax},{ymax}",
-            "bboxSR": "4326",
-            "imageSR": "4326",
-            "size": "1400,900",
-            "transparent": "false",
-            "dpi": "160",
-            "f": "image",
-        }
-        services = [
-            ("World_Imagery", "jpg"),
-            ("World_Topo_Map", "jpg"),
-            ("World_Street_Map", "jpg"),
-        ]
-
         try:
-            import httpx
+            from matplotlib import patheffects
+            from shapely.geometry import shape
+        except ImportError:
+            return
 
-            timeout = httpx.Timeout(20.0, connect=8.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                for service, image_format in services:
-                    url = f"https://services.arcgisonline.com/ArcGIS/rest/services/{service}/MapServer/export"
-                    params = {**base_params, "format": image_format}
-                    try:
-                        response = await client.get(
-                            url,
-                            params=params,
-                            headers={"User-Agent": "GeoMaps-Cartografia/1.0"},
-                        )
-                        response.raise_for_status()
-                        content_type = response.headers.get("content-type", "")
-                        if not content_type.startswith("image/"):
-                            continue
+        feature_count = len(features)
+        font_size = 6.2
+        max_labels = 90
+        if feature_count > 160:
+            font_size = 4.2
+            max_labels = 35
+        elif feature_count > 100:
+            font_size = 4.8
+            max_labels = 50
+        elif feature_count > 60:
+            font_size = 5.3
+            max_labels = 70
 
-                        image = plt.imread(BytesIO(response.content), format="jpg")
-                        ax.imshow(
-                            image,
-                            extent=[xmin, xmax, ymin, ymax],
-                            origin="upper",
-                            aspect="auto",
-                            zorder=0,
-                        )
-                        return
-                    except Exception as exc:
-                        logger.debug("No se pudo cargar basemap ArcGIS %s: %s", service, exc)
-        except Exception as exc:
-            logger.debug("No se pudo inicializar el cliente de basemap ArcGIS: %s", exc)
+        seen_labels: set[str] = set()
+        label_candidates = []
+        for feature in features:
+            properties = feature.get("properties") or {}
+            label = str(properties.get(label_field, "")).strip()
+            if not label:
+                continue
+            normalized = label.upper()
+            if normalized in seen_labels:
+                continue
+            seen_labels.add(normalized)
 
-        self._draw_context_background(ax)
+            geometry = feature.get("geometry")
+            if not geometry:
+                continue
+            try:
+                geom = shape(geometry)
+            except Exception:
+                continue
+            if geom.is_empty:
+                continue
+
+            point = self._label_point(geom)
+            if point is None:
+                continue
+            label_candidates.append((self._label_weight(geom), point, label))
+
+        for _weight, point, label in sorted(label_candidates, key=lambda item: item[0], reverse=True):
+            ax.text(
+                point.x,
+                point.y,
+                self._truncate_label(label),
+                ha="center",
+                va="center",
+                fontsize=font_size,
+                color="#1F2937",
+                alpha=0.82,
+                zorder=9,
+                path_effects=[
+                    patheffects.withStroke(linewidth=1.65, foreground="white", alpha=0.82),
+                ],
+                clip_on=True,
+            )
+            if len(seen_labels) >= max_labels:
+                break
+
+    def _label_point(self, geom: Any) -> Any | None:
+        geom_type = getattr(geom, "geom_type", "")
+        if geom_type in ("Polygon", "MultiPolygon"):
+            return geom.representative_point()
+        if geom_type in ("LineString", "LinearRing"):
+            return geom.interpolate(0.5, normalized=True)
+        if geom_type == "MultiLineString":
+            longest = max(list(geom.geoms), key=lambda item: getattr(item, "length", 0), default=None)
+            return longest.interpolate(0.5, normalized=True) if longest else None
+        if geom_type == "Point":
+            return geom
+        if geom_type == "MultiPoint":
+            return geom.centroid
+        return geom.representative_point() if hasattr(geom, "representative_point") else None
+
+    def _label_weight(self, geom: Any) -> float:
+        return float(getattr(geom, "area", 0) or getattr(geom, "length", 0) or 1)
+
+    def _truncate_label(self, label: str) -> str:
+        value = " ".join(label.split())
+        return value if len(value) <= 20 else f"{value[:18]}..."
+
+    def _build_attribute_page(
+        self,
+        plt: Any,
+        payload: dict[str, Any],
+        request: CartografiaGenerateRequest,
+        table_rows: list[list[str]],
+        width: float,
+        height: float,
+        page_number: int = 1,
+        total_pages: int = 1,
+    ) -> Any:
+        fig = plt.figure(figsize=(width, height), dpi=180)
+        fig.patch.set_facecolor("white")
+        grid = fig.add_gridspec(
+            nrows=3,
+            ncols=1,
+            height_ratios=[0.58, 7.2, 0.34],
+            hspace=0.08,
+            left=0.055,
+            right=0.965,
+            top=0.975,
+            bottom=0.045,
+        )
+
+        title_ax = fig.add_subplot(grid[0])
+        title_ax.axis("off")
+        title_ax.text(
+            0,
+            0.62,
+            f"Tabla de atributos - {payload['layer_name']}",
+            fontsize=13,
+            fontweight="bold",
+            color="#111827",
+            ha="left",
+            va="center",
+        )
+        title_ax.text(
+            0,
+            0.14,
+            f"{payload['feature_count']} elementos | {len(payload['attributes'])} atributos | Pagina {page_number} de {total_pages}",
+            fontsize=8,
+            color="#475569",
+            ha="left",
+            va="center",
+        )
+
+        table_ax = fig.add_subplot(grid[1])
+        table_ax.axis("off")
+        if table_rows and table_rows[0]:
+            self._draw_attribute_table(table_ax, table_rows, full_page=True)
+        else:
+            table_ax.text(
+                0.5,
+                0.5,
+                "No hay atributos seleccionados para mostrar.",
+                fontsize=10,
+                color="#64748B",
+                ha="center",
+                va="center",
+            )
+
+        footer_ax = fig.add_subplot(grid[2])
+        footer_ax.axis("off")
+        footer_ax.text(
+            0,
+            0.55,
+            "Fuente: GeoMaps | Sistema de coordenadas: EPSG:4326 | Tabla generada automaticamente",
+            fontsize=7.2,
+            color="#64748B",
+            ha="left",
+            va="center",
+        )
+        draw_border(fig, request.border_style)
+        return fig
+
+    async def _draw_basemap(self, ax: Any, plt: Any, map_style: str = "satellite") -> bool:
+        return await draw_basemap(ax, plt, map_style)
 
     def _draw_context_background(self, ax: Any) -> None:
         xmin, xmax = ax.get_xlim()
@@ -347,6 +608,8 @@ class CartografiaService:
         polygon_edge: str = "#365314",
         alpha: float = 0.28,
         linewidth: float = 0.9,
+        use_route_palette: bool = True,
+        show_direction_arrows: bool = False,
     ) -> None:
         try:
             from shapely.geometry import shape
@@ -365,7 +628,15 @@ class CartografiaService:
                     ax.scatter([item.x], [item.y], s=44, color="white", edgecolors="none", alpha=0.9, zorder=4)
                     ax.scatter([item.x], [item.y], s=24, color=point_color, edgecolors="#1E293B", linewidths=0.55, zorder=5)
                 elif item.geom_type in ("LineString", "LinearRing"):
-                    self._draw_line(ax, item, line_color, linewidth, properties)
+                    self._draw_line(
+                        ax,
+                        item,
+                        line_color,
+                        linewidth,
+                        properties,
+                        use_route_palette=use_route_palette,
+                        show_direction_arrows=show_direction_arrows,
+                    )
                 elif item.geom_type == "Polygon":
                     self._draw_polygon(ax, item, polygon_color, polygon_edge, alpha, linewidth)
                 elif item.geom_type == "MultiPoint":
@@ -374,7 +645,15 @@ class CartografiaService:
                         ax.scatter([point.x], [point.y], s=24, color=point_color, edgecolors="#1E293B", linewidths=0.55, zorder=5)
                 elif item.geom_type == "MultiLineString":
                     for line in item.geoms:
-                        self._draw_line(ax, line, line_color, linewidth, properties)
+                        self._draw_line(
+                            ax,
+                            line,
+                            line_color,
+                            linewidth,
+                            properties,
+                            use_route_palette=use_route_palette,
+                            show_direction_arrows=show_direction_arrows,
+                        )
                 elif item.geom_type == "MultiPolygon":
                     for polygon in item.geoms:
                         self._draw_polygon(ax, polygon, polygon_color, polygon_edge, alpha, linewidth)
@@ -386,12 +665,19 @@ class CartografiaService:
         color: str,
         linewidth: float,
         properties: dict[str, Any],
+        use_route_palette: bool = True,
+        show_direction_arrows: bool = False,
     ) -> None:
         direction, route_color = self._route_style(properties)
+        if not use_route_palette:
+            route_color = None
         color = route_color or color
         x, y = line.xy
-        ax.plot(x, y, color="white", linewidth=linewidth + 2.4, alpha=0.9, zorder=3)
-        ax.plot(x, y, color=color, linewidth=linewidth + 0.75, zorder=4)
+        ax.plot(x, y, color="white", linewidth=linewidth + 1.1, alpha=0.55, zorder=3)
+        ax.plot(x, y, color=color, linewidth=linewidth + 0.55, alpha=0.96, zorder=4)
+
+        if not show_direction_arrows:
+            return
 
         if direction == "single":
             self._draw_line_arrows(ax, line, color, reverse=False)
@@ -408,27 +694,44 @@ class CartografiaService:
         if not route_keys.intersection({str(key).lower() for key in properties.keys()}):
             return None, None
 
+        route_color = self._route_color(properties)
         raw_value = str(properties.get("sentido") or properties.get("SENTIDO") or "").strip().upper()
         if not raw_value:
-            return None, None
+            return None, route_color
         if any(term in raw_value for term in ("DOBLE", "BIDIRECCIONAL", "AMBOS", "DOS")):
-            return "double", "#7C3AED"
+            return "double", route_color
         if "VUELTA" in raw_value or "RETORNO" in raw_value:
-            return "single", "#F97316"
+            return "single", route_color
         if "IDA" in raw_value:
-            return "single", "#2563EB"
+            return "single", route_color
         if any(term in raw_value for term in ("UNICO", "UNICA", "ONE", "SENCILLO")):
-            return "single", "#2563EB"
-        return None, None
+            return "single", route_color
+        return None, route_color
+
+    def _route_color(self, properties: dict[str, Any]) -> str | None:
+        raw_key = (
+            properties.get("cod_ruta")
+            or properties.get("COD_RUTA")
+            or properties.get("ruta")
+            or properties.get("RUTA")
+            or properties.get("name")
+            or properties.get("NAME")
+            or properties.get("descripcio")
+        )
+        key = str(raw_key or "").strip()
+        if not key:
+            return None
+        index = sum(ord(char) for char in key) % len(ROUTE_PALETTE)
+        return ROUTE_PALETTE[index]
 
     def _draw_line_arrows(self, ax: Any, line: Any, color: str, *, reverse: bool) -> None:
         line_length = getattr(line, "length", 0)
         if line_length <= 0 or getattr(line, "is_empty", False):
             return
 
-        fractions = (0.32, 0.5, 0.68) if line_length > 0.015 else (0.5,)
-        delta = min(line_length * 0.035, 0.0012)
-        delta = max(delta, line_length * 0.012)
+        fractions = (0.56,) if line_length > 0.02 else ()
+        delta = min(line_length * 0.028, 0.0009)
+        delta = max(delta, line_length * 0.010)
 
         for fraction in fractions:
             distance = line_length * fraction
@@ -439,8 +742,8 @@ class CartografiaService:
             if not all(math.isfinite(value) for value in (start.x, start.y, end.x, end.y)):
                 continue
 
-            self._draw_arrow(ax, start.x, start.y, end.x, end.y, "white", 3.0, 5)
-            self._draw_arrow(ax, start.x, start.y, end.x, end.y, color, 1.45, 6)
+            self._draw_arrow(ax, start.x, start.y, end.x, end.y, "white", 1.35, 5, alpha=0.75)
+            self._draw_arrow(ax, start.x, start.y, end.x, end.y, color, 0.75, 6, alpha=0.9)
 
     def _draw_arrow(
         self,
@@ -452,6 +755,7 @@ class CartografiaService:
         color: str,
         linewidth: float,
         zorder: int,
+        alpha: float = 1.0,
     ) -> None:
         ax.annotate(
             "",
@@ -461,10 +765,12 @@ class CartografiaService:
                 "arrowstyle": "-|>",
                 "color": color,
                 "linewidth": linewidth,
-                "mutation_scale": 11,
+                "mutation_scale": 7,
+                "alpha": alpha,
                 "shrinkA": 0,
                 "shrinkB": 0,
             },
+            annotation_clip=True,
             zorder=zorder,
         )
 
@@ -513,11 +819,25 @@ class CartografiaService:
         center_y = (miny + maxy) / 2
         span_x = max(maxx - minx, 0.045)
         span_y = max(maxy - miny, 0.035)
-        span_x *= 1.28
-        span_y *= 1.28
+        span_x *= 1.18
+        span_y *= 1.18
+
+        target_aspect = self._axes_box_aspect(ax)
+        current_aspect = span_x / span_y if span_y else target_aspect
+        if current_aspect < target_aspect:
+            span_x = span_y * target_aspect
+        elif current_aspect > target_aspect:
+            span_y = span_x / target_aspect
 
         ax.set_xlim(center_x - span_x / 2, center_x + span_x / 2)
         ax.set_ylim(center_y - span_y / 2, center_y + span_y / 2)
+
+    def _axes_box_aspect(self, ax: Any) -> float:
+        fig = ax.figure
+        box = ax.get_position()
+        width = max(fig.get_figwidth() * box.width, 0.01)
+        height = max(fig.get_figheight() * box.height, 0.01)
+        return width / height
 
     def _draw_north_arrow(self, ax: Any) -> None:
         ax.annotate(
@@ -594,28 +914,58 @@ class CartografiaService:
         parts.append("CRS: EPSG:4326")
         return " | ".join(parts)
 
-    def _attribute_rows(self, features: list[dict[str, Any]], attributes: list[str]) -> list[list[str]]:
+    def _attribute_rows(
+        self,
+        features: list[dict[str, Any]],
+        attributes: list[str],
+        max_features: int | None = 8,
+    ) -> list[list[str]]:
         if not features or not attributes:
             return []
         visible_attributes = attributes[:8]
         rows = [visible_attributes]
-        for feature in features[:8]:
+        selected_features = features if max_features is None else features[:max_features]
+        for feature in selected_features:
             props = feature.get("properties") or {}
             rows.append([str(props.get(attr, ""))[:34] for attr in visible_attributes])
         return rows
 
-    def _draw_attribute_table(self, ax_table: Any, rows: list[list[str]]) -> None:
+    def _chunk_attribute_rows(self, rows: list[list[str]], rows_per_page: int) -> list[list[list[str]]]:
+        if not rows or not rows[0]:
+            return []
+        header, data_rows = rows[0], rows[1:]
+        if not data_rows:
+            return [[header]]
+        return [
+            [header, *data_rows[index:index + rows_per_page]]
+            for index in range(0, len(data_rows), rows_per_page)
+        ]
+
+    def _table_rows_per_page(self, page_size: str, orientation: str) -> int:
+        if page_size == "tabloid":
+            return 34 if orientation == "portrait" else 24
+        if page_size == "letter":
+            return 26 if orientation == "portrait" else 18
+        return 28 if orientation == "portrait" else 20
+
+    def _draw_attribute_table(self, ax_table: Any, rows: list[list[str]], *, full_page: bool = False) -> None:
+        if not rows or not rows[0]:
+            return
         column_count = max(len(rows[0]), 1)
         table = ax_table.table(
             cellText=rows[1:],
             colLabels=rows[0],
-            loc="center",
+            loc="upper center" if full_page else "center",
             cellLoc="left",
             colWidths=[1 / column_count] * column_count,
         )
         table.auto_set_font_size(False)
-        table.set_fontsize(6.5 if column_count <= 4 else 5.8)
-        table.scale(1, 1.08 if column_count <= 4 else 1.16)
+        if full_page:
+            table.set_fontsize(6.0 if column_count <= 5 else 5.1)
+            table.scale(1, 1.18 if column_count <= 5 else 1.08)
+        else:
+            table.set_fontsize(6.5 if column_count <= 4 else 5.8)
+            table.scale(1, 1.08 if column_count <= 4 else 1.16)
         for (row, _col), cell in table.get_celld().items():
             cell.set_edgecolor("#CBD5E1")
             cell.set_linewidth(0.45)

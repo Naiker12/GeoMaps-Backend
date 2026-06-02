@@ -11,10 +11,16 @@ class CartografiaGenerateRequest(BaseModel):
     data_scope: Literal["all", "filtered"] = "all"
     filter_field: str | None = None
     filter_value: str | None = None
+    label_field: str | None = None
     attribute_fields: list[str] = Field(default_factory=list, max_length=24)
     output_format: Literal["pdf", "png", "geojson"] = "pdf"
     page_size: Literal["a4", "letter", "tabloid"] = "a4"
     orientation: Literal["portrait", "landscape"] = "landscape"
+    map_style: Literal["satellite", "streets", "topo", "none", "dark", "terrain", "watercolor"] = "satellite"
+    border_style: Literal["none", "simple", "transparent", "fancy"] = "none"
+    attributes_on_separate_page: bool = True
+    primary_color: str | None = None
+    secondary_color: str | None = None
 
 
 class CartografiaGeoJSONResponse(BaseModel):
