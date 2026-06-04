@@ -126,6 +126,28 @@ class StorageService:
         normalized = (category or "layers").strip().lower()
         return BUCKET_MAP.get(normalized, "Capas")
 
+    async def create_signed_url(self, bucket: str, file_path: str, expires_in: int = 3600) -> str:
+        """Genera una URL temporal para buckets privados de Supabase Storage."""
+        try:
+            response = self.supabase.storage.from_(bucket).create_signed_url(file_path, expires_in)
+            signed_url = response.get("signedURL") or response.get("signedUrl")
+
+            if not signed_url:
+                raise RuntimeError("Supabase no retorno una URL firmada")
+
+            if signed_url.startswith("http"):
+                return signed_url
+
+            return f"{settings.SUPABASE_URL}{signed_url}"
+        except Exception as exc:
+            logger.error(
+                "Error generando URL firmada - bucket: '%s', path: '%s': %s",
+                bucket,
+                file_path,
+                exc,
+            )
+            raise RuntimeError(f"No se pudo generar URL firmada: {exc}") from exc
+
     def _sanitize_filename(self, filename: str) -> str:
         """Elimina tildes, espacios y caracteres especiales del nombre del archivo."""
         normalized = unicodedata.normalize("NFKD", filename)
@@ -173,6 +195,17 @@ class StorageService:
         except Exception as exc:
             logger.error("Error eliminando archivo: %s", exc, exc_info=True)
             return False
+
+    async def download_file_by_path(self, bucket: str, file_path: str) -> bytes:
+        try:
+            logger.info("Descargando archivo - bucket: '%s', path: '%s'", bucket, file_path)
+            data = self.supabase.storage.from_(bucket).download(file_path)
+            if not isinstance(data, bytes):
+                raise RuntimeError("Supabase no retorno bytes para el archivo")
+            return data
+        except Exception as exc:
+            logger.error("Error descargando archivo: %s", exc, exc_info=True)
+            raise RuntimeError(f"No se pudo descargar archivo: {exc}") from exc
 
 
 storage_service = StorageService()

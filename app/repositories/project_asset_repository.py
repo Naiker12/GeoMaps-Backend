@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project_asset import ProjectAsset
@@ -87,7 +87,10 @@ class ProjectAssetRepository(BaseRepository[ProjectAsset]):
             ProjectAsset.project_id == project_id,
             ProjectAsset.kind == "model_3d",
             ProjectAsset.extension.in_([".glb", ".gltf"]),
-            ProjectAsset.public_url.is_not(None),
+            or_(
+                ProjectAsset.public_url.is_not(None),
+                ProjectAsset.storage_path.is_not(None),
+            ),
             ProjectAsset.conversion_status.in_(["not_required", "ready"]),
         )
         if public_only:

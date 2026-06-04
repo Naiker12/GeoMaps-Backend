@@ -1,12 +1,13 @@
 import uuid
-from typing import Any, Sequence
+from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.project_asset_repository import ProjectAssetRepository
 from app.repositories.project_repository import ProjectRepository
-from app.schemas.project_asset import ModelTransform, ProjectAssetUpdate, RenderableModel
+from app.schemas.project_asset import ModelTransform, ProjectAssetResponse, ProjectAssetUpdate, RenderableModel
+from app.services.footprint_service import footprint_service
 from app.services.storage_service import storage_service
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -25,6 +26,8 @@ ASSET_KIND_BUCKET = {
     "cad_dxf": "project",
     "spatial_source": "project",
 }
+
+SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
 
 ASSET_KIND_FOLDER = {
     "image": "images",
@@ -58,8 +61,9 @@ class ProjectAssetService:
         project_id: uuid.UUID,
         kind: str | None = None,
         public_only: bool = False,
-    ) -> Sequence[Any]:
-        return await self.repository.list_project_assets(project_id, kind=kind, public_only=public_only)
+    ) -> list[ProjectAssetResponse]:
+        assets = await self.repository.list_project_assets(project_id, kind=kind, public_only=public_only)
+        return [await self._asset_response_with_access_url(asset) for asset in assets]
 
     async def upload_assets(
         self,
@@ -198,7 +202,8 @@ class ProjectAssetService:
         assets = await self.repository.get_renderable_models(project_id, public_only=public_only)
         models: list[RenderableModel] = []
         for asset in assets:
-            if not asset.public_url:
+            public_url = await self._resolve_access_url(asset)
+            if not public_url:
                 continue
             transform = self._resolve_transform(asset.transform, project)
             if not transform:
@@ -206,13 +211,45 @@ class ProjectAssetService:
             models.append(
                 RenderableModel(
                     asset_id=asset.id,
-                    public_url=asset.public_url,
+                    public_url=public_url,
                     original_filename=asset.original_filename,
                     is_primary=asset.is_primary,
                     transform=transform,
                 )
             )
         return models
+
+    async def get_project_footprint(self, project_id: uuid.UUID, public_only: bool = False) -> dict[str, Any] | None:
+        project = await self.project_repository.get_project_by_id(project_id)
+        if not project:
+            return None
+
+        assets = await self.repository.list_project_assets(project_id, kind="cad_dxf", public_only=public_only)
+        dxf_asset = next((asset for asset in assets if (asset.original_filename or "").lower() == "plan.dxf"), None)
+        dxf_asset = dxf_asset or next((asset for asset in assets if (asset.extension or "").lower() == ".dxf"), None)
+        if not dxf_asset or not dxf_asset.storage_bucket or not dxf_asset.storage_path:
+            return None
+
+        lat = project.location.latitude if project.location else None
+        lon = project.location.longitude if project.location else None
+        if lat is None or lon is None:
+            return None
+
+        model_assets = await self.repository.get_renderable_models(project_id, public_only=public_only)
+        heading = 0.0
+        for model_asset in model_assets:
+            transform = model_asset.transform or {}
+            heading = float(transform.get("heading") or 0)
+            break
+
+        data = await storage_service.download_file_by_path(dxf_asset.storage_bucket, dxf_asset.storage_path)
+        return footprint_service.dxf_to_geojson(
+            data=data,
+            filename=dxf_asset.original_filename or "plan.dxf",
+            center_lat=float(lat),
+            center_lon=float(lon),
+            heading=heading,
+        )
 
     def classify_asset_by_extension(self, extension: str) -> str:
         ext = extension.lower()
@@ -234,6 +271,27 @@ class ProjectAssetService:
         if kind not in ASSET_KIND_BUCKET:
             raise ValueError(f"Tipo de asset no soportado: {kind}")
         return ASSET_KIND_BUCKET[kind]
+
+    async def _asset_response_with_access_url(self, asset: Any) -> ProjectAssetResponse:
+        response = ProjectAssetResponse.model_validate(asset)
+        access_url = await self._resolve_access_url(asset)
+        if access_url:
+            return response.model_copy(update={"public_url": access_url})
+        return response
+
+    async def _resolve_access_url(self, asset: Any) -> str | None:
+        bucket = getattr(asset, "storage_bucket", None)
+        path = getattr(asset, "storage_path", None)
+        if bucket and path:
+            try:
+                return await storage_service.create_signed_url(
+                    bucket=bucket,
+                    file_path=path,
+                    expires_in=SIGNED_URL_EXPIRES_IN_SECONDS,
+                )
+            except RuntimeError:
+                pass
+        return getattr(asset, "public_url", None)
 
     def _extension(self, filename: str | None) -> str:
         if not filename or "." not in filename:

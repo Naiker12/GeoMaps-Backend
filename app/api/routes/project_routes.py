@@ -208,6 +208,29 @@ async def get_renderable_project_models(
     return {"project_id": id, "models": models}
 
 
+@router.get("/{id}/footprint")
+async def get_project_footprint(
+    id: uuid.UUID,
+    service: ProjectService = Depends(deps.get_project_service),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(deps.get_current_user_optional),
+):
+    project = await service.get_project_by_id(id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    public_only = current_user is None
+    if public_only and not (
+        project.admin_settings and project.admin_settings.is_publicly_visible
+    ):
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    asset_service = ProjectAssetService(db)
+    footprint = await asset_service.get_project_footprint(id, public_only=public_only)
+    if not footprint:
+        raise HTTPException(status_code=404, detail="Footprint no disponible")
+    return footprint
+
+
 @router.patch("/{id}/models/{asset_id}/transform", response_model=ProjectAssetResponse)
 async def update_project_model_transform(
     id: uuid.UUID,
