@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.models.user import User, UserRole
 from app.db.session import get_db
-from app.services.project_service import ProjectService
+from app.services.projects import ProjectService
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login",
@@ -122,7 +122,7 @@ async def get_user_from_api_key(
     request.state.user_id = db_key.user_id
 
     # Validar Cuota Diaria Restrictiva (10 peticiones/día)
-    from app.services.api_key_service import APIKeyService
+    from app.services.api_keys import APIKeyService
 
     service = APIKeyService(db)
     has_quota = await service.check_daily_quota(db_key.user_id)

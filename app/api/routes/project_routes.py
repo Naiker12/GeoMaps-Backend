@@ -23,8 +23,7 @@ from app.schemas.project import (
     ProjectModel3D,
     ProjectUpdate,
 )
-from app.services.project_asset_service import ProjectAssetService
-from app.services.project_service import ProjectService
+from app.services.projects import ProjectAssetService, ProjectService
 
 router = APIRouter()
 

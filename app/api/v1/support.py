@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user_optional, get_db
 from app.db.models.user import User
 from app.schemas.support import SupportRequestCreate, SupportRequestResponse
-from app.services.support_service import SupportService
+from app.services.support import SupportService
 
 router = APIRouter()
 

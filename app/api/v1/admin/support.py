@@ -11,7 +11,7 @@ from app.schemas.support import (
     SupportRequestResponse,
     SupportRequestUpdate,
 )
-from app.services.support_service import SupportService
+from app.services.support import SupportService
 
 router = APIRouter()
 

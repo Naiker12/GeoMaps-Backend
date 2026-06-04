@@ -23,7 +23,7 @@ from app.schemas.layer import (
     LayerPublicResponse,
     LayerResponse,
 )
-from app.services.layer_service import LayerService
+from app.services.layers import LayerService
 
 router = APIRouter()
 

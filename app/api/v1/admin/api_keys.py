@@ -12,7 +12,7 @@ from app.schemas.api_key import (
     APIKeyStatsOverview,
     PaginatedAPIKeyAdminResponse,
 )
-from app.services.api_key_service import APIKeyService
+from app.services.api_keys import APIKeyService
 
 router = APIRouter()
 

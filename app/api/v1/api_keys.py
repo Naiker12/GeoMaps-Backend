@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, get_db
 from app.db.models.user import User
 from app.schemas.api_key import APIKeyCreate, APIKeyResponse, APIKeyUpdate
-from app.services.api_key_service import APIKeyService
+from app.services.api_keys import APIKeyService
 
 router = APIRouter()
 

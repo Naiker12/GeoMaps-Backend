@@ -130,7 +130,7 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
     async def log_task():
         try:
             from app.db.session import get_db
-            from app.services.api_key_service import APIKeyService
+            from app.services.api_keys import APIKeyService
             async for db in get_db():
                 service = APIKeyService(db)
                 if api_key_id and user_id:

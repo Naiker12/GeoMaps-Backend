@@ -7,8 +7,7 @@ from typing import List, Optional
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.db.models.user import User
 from app.schemas.download import DownloadResourceResponse, DownloadResourceCreate, DownloadResourceUpdate
-from app.services.download_service import DownloadService
-from app.services.download_storage_service import DownloadStorageService
+from app.services.downloads import DownloadService, DownloadStorageService
 
 router = APIRouter()
 

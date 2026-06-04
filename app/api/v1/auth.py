@@ -24,7 +24,7 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.auth_schema import SessionResponse
 from app.schemas.user_schema import UserBase, UserUpdate
-from app.services.storage_service import storage_service
+from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
