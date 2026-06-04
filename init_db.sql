@@ -90,8 +90,5 @@ CREATE INDEX IF NOT EXISTS idx_projects_status ON projects (status);
 CREATE INDEX IF NOT EXISTS idx_projects_internal_status ON projects (internal_status);
 CREATE INDEX IF NOT EXISTS idx_projects_coords ON projects (latitude, longitude);
 
--- Datos de Semilla (Usuario Admin: admin@midas.com / admin123)
--- Hash for 'admin123' (generado con bcrypt, esto es solo ejemplo)
-INSERT INTO users (email, hashed_password, full_name, role)
-VALUES ('admin@midas.com', '$2b$12$LQv3c1yqBWVHxkd0LqZyuev8EfyUaXyDIn/GgO7Z.z8.B3i5u4ZmW', 'Admin MIDAS', 'admin')
-ON CONFLICT (email) DO NOTHING;
+-- No se insertan usuarios por defecto.
+-- Crea administradores mediante el flujo seguro de la aplicacion o una migracion controlada.

@@ -133,11 +133,14 @@ async def delete_download(
     current_user: User = Depends(get_current_active_user)
 ):
     """Elimina el recurso físico de Supabase y luego el registro en DB."""
-    # 1. Limpieza de storage
-    DownloadStorageService.delete_resource_files(download_id)
-    
-    # 2. Eliminación en DB
     download_service = DownloadService(db)
+    resource = await download_service.repository.get(download_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Recurso no encontrado")
+
+    if resource.file_path:
+        await DownloadStorageService.delete_resource_files(download_id, resource.file_path)
+
     success = await download_service.delete_download(download_id)
     if not success:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
