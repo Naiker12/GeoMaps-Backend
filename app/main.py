@@ -1,29 +1,35 @@
 """Punto de entrada principal de GeoMaps Backend (FastAPI).
-Configura ciclo de vida, middleware CORS, excepciones y registro de rutas.
+Configura ciclo de vida, middleware CORS, excepciones y registro de rutas organizadas por slices verticales Geo-*.
 """
 
 import logging
 import time
 import json
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-# Registro global de modelos de ML para acceso desde servicios (Reservado para futuro)
+# Registro global de modelos de ML
 ml_models = {}
 
-# Importación de Rutas Seguras
-from app.api.v1 import (
-    auth_routes, layer_routes, 
-    download_routes, search_routes, api_keys, ogc_routes, cartografia_routes, support as support_routes
-)
-from app.api.v1.admin import router as admin_router
-from app.api.routes import project_routes
+# Importación de Rutas por Slices Verticales Geo-*
+from app.Geo_Auth.router import router as auth_router
+from app.Geo_Proyectos.router import router as project_router
+from app.Geo_Capas.router import router as layer_router
+from app.Geo_Descargas.router import router as download_router
+from app.Geo_Busqueda.router import router as search_router
+from app.Geo_Cartografia.router import router as cartografia_router
+from app.Geo_Soporte.router import router as support_router
+from app.Geo_OGC.router import router as ogc_router
+from app.Geo_ApiKeys.router import router as api_keys_router
+from app.Geo_IA.router import router as ia_router
+from app.Geo_Reportes.router import router as report_router
 
-from app.core.config import settings
-from app.core.exceptions import setup_exception_handlers
-from app.core.logging import setup_logging
+from app.shared.core.config import settings
+from app.shared.core.exceptions import setup_exception_handlers
+from app.shared.core.logging import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -33,9 +39,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Maneja eventos de encendido y apagado de la aplicación."""
     logger.info("Arrancando GeoMaps.")
-    # El motor YOLO ha sido deshabilitado temporalmente para optimizar recursos
     yield
-    # Limpieza
     ml_models.clear()
     logger.info("GeoMaps apagado.")
 
@@ -126,11 +130,10 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
     if not api_key_id and raw_api_key and len(raw_api_key) > 4:
         api_key_hint = raw_api_key[-4:]
 
-    import asyncio
     async def log_task():
         try:
-            from app.db.session import get_db
-            from app.services.api_keys import APIKeyService
+            from app.shared.db.session import get_db
+            from app.Geo_ApiKeys.service import APIKeyService
             async for db in get_db():
                 service = APIKeyService(db)
                 if api_key_id and user_id:
@@ -166,24 +169,17 @@ async def combined_trace_and_log_middleware(request: Request, call_next):
 setup_exception_handlers(app)
 
 # ── RUTAS ─────────────────────────────────────────────────────────────────────
-app.include_router(auth_routes.router, prefix=settings.API_V1_STR)
-app.include_router(project_routes.router, prefix=f"{settings.API_V1_STR}/projects")
-app.include_router(layer_routes.router, prefix=f"{settings.API_V1_STR}/layers")
-app.include_router(download_routes.router, prefix=f"{settings.API_V1_STR}/resources")
-app.include_router(search_routes.router, prefix=f"{settings.API_V1_STR}/search")
-app.include_router(cartografia_routes.router, prefix=f"{settings.API_V1_STR}/cartografia", tags=["Cartografia"])
-app.include_router(support_routes.router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
-app.include_router(ogc_routes.router, prefix=f"{settings.API_V1_STR}/ogc", tags=["OGC"])
-app.include_router(admin_router, prefix=settings.API_V1_STR)
-app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
-
-# Rutas de IA
-from app.api.v1.endpoints import ia_router
-app.include_router(ia_router.router, prefix=f"{settings.API_V1_STR}/ia", tags=["Artificial Intelligence"])
-
-# Rutas de Reportes IA
-from app.api.v1.endpoints import report_router
-app.include_router(report_router.router, prefix=f"{settings.API_V1_STR}/reports", tags=["Reports"])
+app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(project_router, prefix=f"{settings.API_V1_STR}/projects")
+app.include_router(layer_router, prefix=f"{settings.API_V1_STR}/layers")
+app.include_router(download_router, prefix=f"{settings.API_V1_STR}/resources")
+app.include_router(search_router, prefix=f"{settings.API_V1_STR}/search")
+app.include_router(cartografia_router, prefix=f"{settings.API_V1_STR}/cartografia", tags=["Cartografia"])
+app.include_router(support_router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
+app.include_router(ogc_router, prefix=f"{settings.API_V1_STR}/ogc", tags=["OGC"])
+app.include_router(api_keys_router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
+app.include_router(ia_router, prefix=f"{settings.API_V1_STR}/ia", tags=["Artificial Intelligence"])
+app.include_router(report_router, prefix=f"{settings.API_V1_STR}/reports", tags=["Reports"])
 
 
 @app.get("/health")
