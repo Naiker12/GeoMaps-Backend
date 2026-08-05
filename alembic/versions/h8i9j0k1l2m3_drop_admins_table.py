@@ -1,4 +1,4 @@
-"""drop_admins_table
+"""seed_superadmin_and_drop_admins
 
 Revision ID: h8i9j0k1l2m3
 Revises: g7h8i9j0k1l2
@@ -19,6 +19,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # 1. Si existe la tabla admins, migrar cualquier superadmin existente a public.users
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'admins') THEN
+                INSERT INTO users (id, email, full_name, role, is_active, created_at, updated_at)
+                SELECT 
+                    id, 
+                    email, 
+                    username AS full_name, 
+                    'SUPER_ADMIN'::user_role AS role, 
+                    is_active, 
+                    created_at, 
+                    updated_at
+                FROM admins
+                ON CONFLICT (email) 
+                DO UPDATE SET role = 'SUPER_ADMIN'::user_role;
+            END IF;
+        END $$;
+    """)
+
+    # 2. Dropear la tabla obsoleta admins
     op.execute("DROP TABLE IF EXISTS admins CASCADE;")
 
 
