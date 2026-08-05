@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.api import deps
-from app.core import security
+from app.Geo_Auth import security
 from app.shared.core.config import settings
 from app.Geo_Usuarios.model import User
-from app.schemas.user import Token, UserCreate, User as UserSchema
+from app.Geo_Usuarios.schemas import Token, UserCreate, User as UserSchema
 
 router = APIRouter()
 
@@ -30,8 +30,8 @@ async def login(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Usuario inactivo")
         
-    access_token = security.create_access_token(user.id)
-    refresh_token = security.create_refresh_token(user.id)
+    access_token = security.create_access_token({"sub": str(user.id)})
+    refresh_token = security.create_refresh_token({"sub": str(user.id)})
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -53,7 +53,7 @@ async def register(
         
     user = User(
         email=user_in.email,
-        hashed_password=security.get_password_hash(user_in.password),
+        hashed_password=security.hash_password(user_in.password),
         full_name=user_in.full_name,
         role=user_in.role
     )

@@ -6,8 +6,8 @@ import logging
 import uuid
 from typing import Any, Sequence
 from fastapi import UploadFile
-from app.repositories.project_repository import ProjectRepository
-from app.schemas.project import ProjectCreate, ProjectUpdate
+from app.Geo_Proyectos.repository import ProjectRepository
+from app.Geo_Proyectos.schemas import ProjectCreate, ProjectUpdate
 from app.Geo_Proyectos.model import Project
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class ProjectService:
 
     async def _classify_and_upload(self, project_id: uuid.UUID, file: UploadFile):
         """Helper privado para clasificar y subir archivos según su extensión."""
-        from app.services.storage import storage_service
+        from app.Geo_Storage.service import storage_service
         
         filename = file.filename.lower() if file.filename else ""
         if any(filename.endswith(ext) for ext in IMAGE_EXTENSIONS):
@@ -117,7 +117,7 @@ class ProjectService:
         import json
         import tempfile
         import geopandas as gpd
-        from app.services.storage import storage_service
+        from app.Geo_Storage.service import storage_service
         from geoalchemy2.functions import ST_GeomFromText
         from app.Geo_Proyectos.model import ProjectLot
 

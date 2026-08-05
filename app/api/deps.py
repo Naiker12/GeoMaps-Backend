@@ -1,7 +1,7 @@
 """Dependencias de inyección para rutas de la API.
 
-Provee autenticación, autorización, y servicios compartidos
-mediante el sistema de Depends de FastAPI.
+Compat layer: mantiene la interfaz histórica de ``app.api.deps``
+re-exportando desde los vertical slices (Geo_*) y shared.
 """
 
 import logging
@@ -15,9 +15,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.core.config import settings
-from app.Geo_Usuarios.model import User, UserRole
 from app.shared.db.session import get_db
-from app.services.projects import ProjectService
+from app.Geo_Usuarios.model import User, UserRole
+from app.Geo_Proyectos.service import ProjectService
+from app.Geo_ApiKeys.model import APIKey, APIKeyStatus
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login",
@@ -35,7 +36,7 @@ async def get_current_user(
     token: str | None = Depends(oauth2_scheme_optional),
 ) -> User:
     """Valida el token (Local o Supabase) y retorna el usuario autenticado."""
-    from app.core.security.jwt_handler import decode_supabase_token, decode_token
+    from app.Geo_Auth.security.jwt_handler import decode_supabase_token, decode_token
 
     effective_token = token or request.cookies.get("access_token")
     if not effective_token:
@@ -102,8 +103,6 @@ async def get_user_from_api_key(
 
     from sqlalchemy.orm import selectinload
 
-    from app.Geo_ApiKeys.model import APIKey, APIKeyStatus
-
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
     result = await db.execute(
@@ -122,7 +121,7 @@ async def get_user_from_api_key(
     request.state.user_id = db_key.user_id
 
     # Validar Cuota Diaria Restrictiva (10 peticiones/día)
-    from app.services.api_keys import APIKeyService
+    from app.Geo_ApiKeys.service import APIKeyService
 
     service = APIKeyService(db)
     has_quota = await service.check_daily_quota(db_key.user_id)
@@ -177,7 +176,7 @@ async def get_current_user_optional(
         return None
 
     try:
-        from app.core.security.jwt_handler import decode_supabase_token, decode_token
+        from app.Geo_Auth.security.jwt_handler import decode_supabase_token, decode_token
 
         payload = decode_token(effective_token) or decode_supabase_token(
             effective_token

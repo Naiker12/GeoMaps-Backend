@@ -15,9 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.db.session import get_db
 from app.api.deps import get_current_active_user
 from app.Geo_Usuarios.model import User
-from app.services.report.report_engine import ReportEngine
-from app.services.export.typst_service import TypstPDFService
-from app.schemas.report_schemas import (
+from app.Geo_Reportes.report_engine import ReportEngine
+from app.Geo_Reportes.typst_service import TypstPDFService
+from app.Geo_Reportes.schemas import (
     ReportRequest,
     ReportGenerateResponse,
     ReportStatusResponse,

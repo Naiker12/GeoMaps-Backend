@@ -6,12 +6,12 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.core.config import settings
-from app.infrastructure.ia_llm_client import LLMProviderFactory
-from app.services.ia.prompt_builder import PromptBuilder, extract_suggestions_from_text
-from app.services.ia.history_service import HistoryService
-from app.services.ia.tools import ToolsService
-from app.services.ia.zone_extractor import extract_zone_names
-from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
+from app.Geo_IA.llm_client import LLMProviderFactory
+from app.Geo_IA.prompt_builder import PromptBuilder, extract_suggestions_from_text
+from app.Geo_IA.history_service import HistoryService
+from app.Geo_IA.tools import ToolsService
+from app.Geo_IA.zone_extractor import extract_zone_names
+from app.Geo_IA.schemas import ChatRequest, ChatResponse, Message, IAModelConfig
 from app.shared.core.exceptions import LLMException
 
 COMPARISON_KEYWORDS = ["compara", "comparar", "comparacion", "comparación", " vs ", " versus ", "diferencia", "diferencias"]

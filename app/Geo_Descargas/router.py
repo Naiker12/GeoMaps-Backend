@@ -6,8 +6,9 @@ from typing import List, Optional
 
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.Geo_Usuarios.model import User
-from app.schemas.download import DownloadResourceResponse, DownloadResourceCreate, DownloadResourceUpdate
-from app.services.downloads import DownloadService, DownloadStorageService
+from app.Geo_Descargas.schemas import DownloadResourceResponse, DownloadResourceCreate, DownloadResourceUpdate
+from app.Geo_Descargas.service import DownloadService
+from app.Geo_Descargas.storage import DownloadStorageService
 
 router = APIRouter()
 

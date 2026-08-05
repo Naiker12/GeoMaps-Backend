@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.repositories.layer_repository import LayerRepository
-from app.schemas.cartografia import CartografiaGenerateRequest
+from app.Geo_Capas.repository import LayerRepository
+from app.Geo_Cartografia.schemas import CartografiaGenerateRequest
 
 
 class CartografiaPayloadBuilder:

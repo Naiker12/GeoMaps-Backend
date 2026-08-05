@@ -11,13 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.ia.intent_classifier import IntentClassifier
-from app.services.ia.zone_extractor import extract_zone_names
-from app.services.ia.report_interpreter import ReportInterpreter
-from app.services.spatial.cadastral_analyzer import CadastralAnalyzer
-from app.services.spatial.hydrology_analyzer import HydrologyAnalyzer
-from app.services.report.data_builder import DataBuilder
-from app.schemas.report_schemas import UniversalReportJSON
+from app.Geo_IA.intent_classifier import IntentClassifier
+from app.Geo_IA.zone_extractor import extract_zone_names
+from app.Geo_IA.report_interpreter import ReportInterpreter
+from app.Geo_Reportes.cadastral_analyzer import CadastralAnalyzer
+from app.Geo_Reportes.hydrology_analyzer import HydrologyAnalyzer
+from app.Geo_Reportes.data_builder import DataBuilder
+from app.Geo_Reportes.schemas import UniversalReportJSON
 
 logger = logging.getLogger(__name__)
 

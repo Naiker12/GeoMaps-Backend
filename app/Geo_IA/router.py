@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Any
 from uuid import UUID
 from app.shared.db.session import get_db
-from app.services.ia.agent_service import AgentService
-from app.services.ia.history_service import HistoryService
-from app.services.ia.usage_service import UsageService
-from app.services.ia.stt_service import stt_service
-from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest
+from app.Geo_IA.agent_service import AgentService
+from app.Geo_IA.history_service import HistoryService
+from app.Geo_IA.usage_service import UsageService
+from app.Geo_IA.stt_service import stt_service
+from app.Geo_IA.schemas import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest
 from app.api.deps import get_current_active_user
 from app.Geo_Usuarios.model import User
 

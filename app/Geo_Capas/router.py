@@ -16,14 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, get_current_user_optional, get_db
 from app.Geo_Usuarios.model import User
-from app.schemas.layer import (
+from app.Geo_Capas.schemas import (
     FeatureCollectionSchema,
     LayerCategoryTreeItem,
     LayerCreate,
     LayerPublicResponse,
     LayerResponse,
 )
-from app.services.layers import LayerService
+from app.Geo_Capas.service import LayerService
 
 router = APIRouter()
 

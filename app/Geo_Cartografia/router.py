@@ -4,9 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, get_db
 from app.Geo_Usuarios.model import User
-from app.schemas.cartografia import CartografiaGenerateRequest
-from app.services.cartografia_service import CartografiaService
-from app.services.cartografia.temporary_files import cleanup_generated_file
+from app.Geo_Cartografia.schemas import CartografiaGenerateRequest
+from app.Geo_Cartografia.services.generator import CartografiaService
+from app.Geo_Cartografia.services.temporary_files import cleanup_generated_file
 
 router = APIRouter()
 

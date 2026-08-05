@@ -5,7 +5,7 @@ from uuid import UUID
 from typing import List, Optional, Any, Dict
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.ia import Conversation, MessageRead, IASuggestion
+from app.Geo_IA.schemas import Conversation, MessageRead, IASuggestion
 from app.shared.core.config import settings
 
 class HistoryService:

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.Geo_Descargas.model import DownloadResource
 from app.shared.base_repository import BaseRepository
-from app.schemas.download import DownloadResourceCreate
+from app.Geo_Descargas.schemas import DownloadResourceCreate
 
 
 class DownloadRepository(BaseRepository[DownloadResource]):

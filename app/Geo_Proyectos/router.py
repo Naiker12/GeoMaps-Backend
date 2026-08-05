@@ -8,13 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.Geo_Usuarios.model import User
 from app.shared.db.session import get_db
-from app.schemas.project_asset import (
+from app.Geo_Proyectos.asset_schemas import (
     ProjectAssetResponse,
     ProjectAssetUpdate,
     ProjectModelTransformUpdate,
     RenderableModelsResponse,
 )
-from app.schemas.project import (
+from app.Geo_Proyectos.schemas import (
     Project,
     ProjectCreate,
     ProjectImage,
@@ -23,7 +23,8 @@ from app.schemas.project import (
     ProjectModel3D,
     ProjectUpdate,
 )
-from app.services.projects import ProjectAssetService, ProjectService
+from app.Geo_Proyectos.asset_service import ProjectAssetService
+from app.Geo_Proyectos.service import ProjectService
 
 router = APIRouter()
 

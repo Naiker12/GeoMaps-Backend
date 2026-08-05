@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, get_db
 from app.Geo_Usuarios.model import User
-from app.schemas.api_key import APIKeyCreate, APIKeyResponse, APIKeyUpdate
-from app.services.api_keys import APIKeyService
+from app.Geo_ApiKeys.schemas import APIKeyCreate, APIKeyResponse, APIKeyUpdate
+from app.Geo_ApiKeys.service import APIKeyService
 
 router = APIRouter()
 

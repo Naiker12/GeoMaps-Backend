@@ -4,7 +4,7 @@ Transforma datos crudos de los analyzers en el JSON universal del reporte.
 """
 import logging
 from typing import Any, Dict, List, Optional
-from app.schemas.report_schemas import (
+from app.Geo_Reportes.schemas import (
     UniversalReportJSON,
     KPIItem,
     ChartDefinition,

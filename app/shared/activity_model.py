@@ -4,7 +4,7 @@ from typing import Optional, Any
 from sqlalchemy import String, DateTime, JSON, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.db.session import Base
-from app.core.utils.datetime import get_utc_now
+from app.shared.core.datetime import get_utc_now
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

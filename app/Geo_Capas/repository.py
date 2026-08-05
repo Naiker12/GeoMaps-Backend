@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.Geo_Capas.model import Layer, LayerFeature
 from app.shared.base_repository import BaseRepository
-from app.schemas.layer import LayerCreate
+from app.Geo_Capas.schemas import LayerCreate
 
 
 class LayerRepository(BaseRepository[Layer]):

@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_optional, get_db
 from app.Geo_Usuarios.model import User
-from app.schemas.support import SupportRequestCreate, SupportRequestResponse
-from app.services.support import SupportService
+from app.Geo_Soporte.schemas import SupportRequestCreate, SupportRequestResponse
+from app.Geo_Soporte.service import SupportService
 
 router = APIRouter()
 

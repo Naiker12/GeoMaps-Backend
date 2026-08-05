@@ -13,12 +13,12 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.layer_repository import LayerRepository
-from app.schemas.cartografia import CartografiaGenerateRequest
-from app.services.cartografia.basemap_renderer import draw_basemap
-from app.services.cartografia.page_border import draw_border
-from app.services.cartografia.payload_builder import CartografiaPayloadBuilder
-from app.services.cartografia.route_styles import route_style
+from app.Geo_Capas.repository import LayerRepository
+from app.Geo_Cartografia.schemas import CartografiaGenerateRequest
+from app.Geo_Cartografia.services.basemap_renderer import draw_basemap
+from app.Geo_Cartografia.services.page_border import draw_border
+from app.Geo_Cartografia.services.payload_builder import CartografiaPayloadBuilder
+from app.Geo_Cartografia.services.route_styles import route_style
 
 logger = logging.getLogger(__name__)
 

@@ -4,8 +4,8 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.Geo_ApiKeys.model import APIKey, APIKeyStatus
-from app.repositories.api_key import APIKeyRepository
-from app.schemas.api_key import APIKeyCreate
+from app.Geo_ApiKeys.repository import APIKeyRepository
+from app.Geo_ApiKeys.schemas import APIKeyCreate
 
 
 class APIKeyService:

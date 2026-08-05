@@ -4,11 +4,11 @@ from typing import Any
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.project_asset_repository import ProjectAssetRepository
-from app.repositories.project_repository import ProjectRepository
-from app.schemas.project_asset import ModelTransform, ProjectAssetResponse, ProjectAssetUpdate, RenderableModel
-from app.services.footprints import footprint_service
-from app.services.projects.asset_config import (
+from app.Geo_Proyectos.asset_repository import ProjectAssetRepository
+from app.Geo_Proyectos.repository import ProjectRepository
+from app.Geo_Proyectos.asset_schemas import ModelTransform, ProjectAssetResponse, ProjectAssetUpdate, RenderableModel
+from app.Geo_Footprints.service import footprint_service
+from app.Geo_Proyectos.asset_config import (
     ASSET_KIND_FOLDER,
     DEFAULT_ROLE_BY_KIND,
     SIGNED_URL_EXPIRES_IN_SECONDS,
@@ -16,9 +16,9 @@ from app.services.projects.asset_config import (
     file_extension,
     resolve_asset_bucket,
 )
-from app.services.projects.footprint_builder import ProjectFootprintBuilder
-from app.services.projects.model_transform import resolve_model_transform
-from app.services.storage import storage_service
+from app.Geo_Proyectos.footprint_builder import ProjectFootprintBuilder
+from app.Geo_Proyectos.model_transform import resolve_model_transform
+from app.Geo_Storage.service import storage_service
 
 
 class ProjectAssetService:

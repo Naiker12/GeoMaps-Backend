@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from app.services.export.technical_assets_service import TechnicalAssetsService
+from app.Geo_Reportes.technical_assets_service import TechnicalAssetsService
 
 logger = logging.getLogger(__name__)
 

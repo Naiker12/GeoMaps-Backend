@@ -6,8 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.Geo_Soporte.model import SupportRequest
-from app.schemas.support import SupportReplyCreate, SupportRequestCreate, SupportRequestUpdate
-from app.services.notifications import SupportReplyEmail, email_service
+from app.Geo_Soporte.schemas import SupportReplyCreate, SupportRequestCreate, SupportRequestUpdate
+from app.Geo_Soporte.email import SupportReplyEmail, email_service
 
 
 class SupportService:

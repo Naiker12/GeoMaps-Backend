@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.search import SearchService
+from app.Geo_Busqueda.service import SearchService
 from .entity_search import EntitySearchTools
 from .layer_stats import LayerStatsTools
 from .map_controls import MapControlTools

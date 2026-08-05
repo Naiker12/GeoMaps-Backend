@@ -8,9 +8,9 @@ from typing import Any, Sequence
 
 import geopandas as gpd
 
-from app.repositories.layer_repository import LayerRepository
-from app.services.geospatial import GeoService
-from app.schemas.layer import LayerCreate, LayerUpdate
+from app.Geo_Capas.repository import LayerRepository
+from app.Geo_Spatial.geospatial import GeoService
+from app.Geo_Capas.schemas import LayerCreate, LayerUpdate
 from app.Geo_Capas.model import Layer
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class LayerService:
             geom_type = await self.geo_service.get_geometry_type(geojson_data)
             processed_features = await self.geo_service.process_geojson(geojson_data)
 
-            from app.services.storage import storage_service
+            from app.Geo_Storage.service import storage_service
 
             file.file.seek(0)
 
@@ -129,7 +129,7 @@ class LayerService:
         update_data = self._normalize_update_data(update_data)
 
         if file:
-            from app.services.storage import storage_service
+            from app.Geo_Storage.service import storage_service
 
             # 1. Parsear el nuevo archivo
             geojson_data = await self._parse_file(file)
@@ -165,7 +165,7 @@ class LayerService:
         if not layer:
             return False
 
-        from app.services.storage import storage_service
+        from app.Geo_Storage.service import storage_service
 
         if layer.file_url:
             deleted = await storage_service.delete_file(layer.file_url)

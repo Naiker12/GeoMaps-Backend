@@ -25,7 +25,7 @@ async def get_current_user(
         )
 
     # Intentar decodificar con el secreto local (tokens emitidos por este backend)
-    from app.core.security.jwt_handler import decode_token, decode_supabase_token
+    from app.Geo_Auth.security.jwt_handler import decode_token, decode_supabase_token
     payload = decode_token(token)
     
     # Si falla, intentar decodificar como token de Supabase (frontend directo)

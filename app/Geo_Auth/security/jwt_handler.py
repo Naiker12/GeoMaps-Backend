@@ -67,6 +67,23 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return _jwt_hs.encode(header, payload, secret).decode("utf-8")
 
 
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Genera un JWT de refresco firmado localmente (vida útil más larga)."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(days=30)
+
+    to_encode.update({"exp": expire, "type": "refresh"})
+
+    header = {"alg": "HS256"}
+    payload = to_encode
+    secret = settings.SECRET_KEY.encode() if isinstance(settings.SECRET_KEY, str) else settings.SECRET_KEY
+
+    return _jwt_hs.encode(header, payload, secret).decode("utf-8")
+
+
 def decode_supabase_token(token: str) -> Optional[dict[str, Any]]:
     """Valida y decodifica un token de Supabase Identity mediante secreto compartido (HS256) o llave pública (ES256)."""
     try:

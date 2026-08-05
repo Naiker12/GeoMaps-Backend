@@ -24,7 +24,7 @@ class GeoService:
         epsg_target: int = 4326
     ) -> list[dict[str, Any]]:
         """Transforma datos GeoJSON crudos en documentos WKT aptos para base de datos."""
-        from app.utils.feature_normalizer import detect_display_name
+        from app.Geo_Spatial.feature_normalizer import detect_display_name
 
         features = geojson_data.get("features", [])
         if not features:
