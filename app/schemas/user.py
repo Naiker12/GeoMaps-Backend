@@ -1,7 +1,7 @@
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 import uuid
-from app.db.models.user import UserRole
+from app.Geo_Usuarios.model import UserRole
 
 class UserBase(BaseModel):
     email: EmailStr

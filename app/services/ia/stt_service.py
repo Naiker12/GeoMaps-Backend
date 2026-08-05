@@ -8,7 +8,7 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
-from app.core.config import settings
+from app.shared.core.config import settings
 
 
 class STTService:

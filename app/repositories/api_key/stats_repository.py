@@ -9,7 +9,7 @@ from typing import Any, Dict
 from sqlalchemy import select, func, and_, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.api_key import (
+from app.Geo_ApiKeys.model import (
     APIKey, APIKeyStatus, APIKeyUsageLog,
 )
 

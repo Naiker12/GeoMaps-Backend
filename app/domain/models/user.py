@@ -3,7 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID
 import enum
 
 import uuid
-from app.db.session import Base
+from app.shared.db.session import Base
 
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"

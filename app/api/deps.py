@@ -14,9 +14,9 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.db.models.user import User, UserRole
-from app.db.session import get_db
+from app.shared.core.config import settings
+from app.Geo_Usuarios.model import User, UserRole
+from app.shared.db.session import get_db
 from app.services.projects import ProjectService
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -102,7 +102,7 @@ async def get_user_from_api_key(
 
     from sqlalchemy.orm import selectinload
 
-    from app.db.models.api_key import APIKey, APIKeyStatus
+    from app.Geo_ApiKeys.model import APIKey, APIKeyStatus
 
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 

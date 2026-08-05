@@ -1,6 +1,6 @@
-from app.db.session import Base
-from app.db.models.user import User
-from app.db.models.project import (
+from app.shared.db.session import Base
+from app.Geo_Usuarios.model import User
+from app.Geo_Proyectos.model import (
     Project, 
     ProjectLocation, 
     ProjectMetrics, 
@@ -10,14 +10,14 @@ from app.db.models.project import (
     ProjectImage, 
     ProjectModel3D
 )
-from app.db.models.project_asset import ProjectAsset
-from app.db.models.layer import Layer, LayerFeature
-from app.db.models.download import DownloadResource
-from app.db.models.api_key import (
+from app.Geo_Proyectos.asset_model import ProjectAsset
+from app.Geo_Capas.model import Layer, LayerFeature
+from app.Geo_Descargas.model import DownloadResource
+from app.Geo_ApiKeys.model import (
     APIKey, 
     APIKeyUsageLog, 
     APIKeyDailyStats
 )
-from app.db.models.activity import ActivityLog
-from app.db.models.user_session import UserSession
-from app.db.models.support import SupportRequest
+from app.shared.activity_model import ActivityLog
+from app.Geo_Usuarios.user_session_model import UserSession
+from app.Geo_Soporte.model import SupportRequest

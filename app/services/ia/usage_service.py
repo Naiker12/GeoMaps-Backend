@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from uuid import UUID
-from app.core.config import settings
+from app.shared.core.config import settings
 
 class UsageService:
     def __init__(self, db: AsyncSession):

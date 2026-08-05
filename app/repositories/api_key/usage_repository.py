@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy import select, update, func, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.api_key import (
+from app.Geo_ApiKeys.model import (
     APIKey, APIKeyUsageLog, APIKeyDailyStats,
 )
 

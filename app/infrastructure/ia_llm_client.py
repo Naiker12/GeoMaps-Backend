@@ -5,7 +5,7 @@ import asyncio
 from google import genai
 from google.genai import types
 from typing import List, Dict, Any, Optional, AsyncGenerator
-from app.core.config import settings
+from app.shared.core.config import settings
 from app.schemas.ia import Message
 
 logger = logging.getLogger(__name__)
@@ -264,7 +264,7 @@ class LLMProviderFactory:
     
     @staticmethod
     def create(provider: str, api_key: str, model_id: str) -> LLMProvider:
-        from app.core.config import settings
+        from app.shared.core.config import settings
         key = api_key or settings.GOOGLE_API
         # Forzamos GeminiProvider para todos los casos si queremos migración total
         return GeminiProvider(key, model_id)

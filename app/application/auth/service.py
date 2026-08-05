@@ -12,13 +12,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from supabase import Client, create_client
 
-from app.core.config import settings
+from app.shared.core.config import settings
 from app.core.security.jwt_handler import create_access_token
 from app.core.security.password import verify_password
 from app.core.utils.datetime import get_utc_now
 from app.db.models.admin import Admin
-from app.db.models.user import User
-from app.db.models.user_session import UserSession
+from app.Geo_Usuarios.model import User
+from app.Geo_Usuarios.model_session import UserSession
 from app.schemas.auth_schema import AuthResponse
 from app.schemas.user_schema import UserBase
 
@@ -143,7 +143,7 @@ class AuthService:
         role_str = "ADMIN" if email == "admin@geomaps.com" or email.endswith("@geomaps.com") else "USER"
         name = metadata.get("name") or metadata.get("full_name") or email.split("@")[0]
 
-        from app.db.models.user import UserRole
+        from app.Geo_Usuarios.model import UserRole
         role_enum = UserRole.ADMIN if role_str == "ADMIN" else UserRole.USER
         
         user = User(

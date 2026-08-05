@@ -5,7 +5,7 @@ Usa el LLM para generar texto de análisis profesional a partir de datos espacia
 import logging
 import json
 from typing import Any, Dict
-from app.core.config import settings
+from app.shared.core.config import settings
 from app.infrastructure.ia_llm_client import LLMProviderFactory
 from app.schemas.ia import Message
 

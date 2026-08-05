@@ -9,7 +9,7 @@ from typing import Optional, Sequence, Tuple, Dict, Any, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.api_key import (
+from app.Geo_ApiKeys.model import (
     APIKey, APIKeyRole, APIKeyVisibility, APIKeyUsageLog,
 )
 from app.repositories.api_key.key_repository import APIKeyCoreRepository

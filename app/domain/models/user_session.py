@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, DateTime, UUID, text
-from app.db.session import Base
+from app.shared.db.session import Base
 import uuid
 from app.core.utils.datetime import get_utc_now
 

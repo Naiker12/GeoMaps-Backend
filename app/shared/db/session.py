@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
-from app.core.config import settings
+from app.shared.core.config import settings
 
 _db_url = str(settings.DATABASE_URL)
 if _db_url.startswith("postgres://"):

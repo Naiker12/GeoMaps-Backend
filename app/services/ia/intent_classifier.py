@@ -5,7 +5,7 @@ Determina qué tipo de reporte solicita el usuario usando el LLM.
 import logging
 import json
 from typing import Any, Dict, List, Optional
-from app.core.config import settings
+from app.shared.core.config import settings
 from app.infrastructure.ia_llm_client import LLMProviderFactory
 from app.schemas.ia import Message
 
