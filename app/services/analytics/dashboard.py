@@ -4,7 +4,6 @@ from sqlalchemy import func, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.utils.datetime import get_utc_now
 from app.db.models.layer import Layer, LayerFeature, VisibilityEnum
-from app.db.models.project import Project
 from .utils import group_by_day, group_by_month
 
 
@@ -20,7 +19,6 @@ class DashboardAnalytics:
         for key, stmt in {
             "layers": select(func.count(Layer.id)),
             "features": select(func.count(LayerFeature.id)),
-            "projects": select(func.count(Project.id)),
             "visible": select(func.count(Layer.id)).where(Layer.visibility == VisibilityEnum.PUBLIC)
         }.items():
             results[key] = await self.db.scalar(stmt) or 0
@@ -29,7 +27,6 @@ class DashboardAnalytics:
             {"title": "Capas Totales", "value": results["layers"], "trend": "En vivo", "icon": "Layers"},
             {"title": "Puntos de Datos", "value": results["features"], "trend": "Global", "icon": "Database"},
             {"title": "Capas Públicas", "value": results["visible"], "trend": "Compartidas", "icon": "Eye"},
-            {"title": "Proyectos MAP", "value": results["projects"], "trend": "Activos", "icon": "MapPin"},
         ]
 
     async def get_growth_data(self, range_days: int) -> dict[str, Any]:
@@ -46,7 +43,7 @@ class DashboardAnalytics:
         return group_by_month(layer_dates, feature_dates, range_days)
 
     async def get_resource_usage(self, days: int = 90) -> list[dict]:
-        """Dataset histórico y proyectos."""
+        """Dataset histórico de capas."""
         now = get_utc_now()
         start_date = now - timedelta(days=days)
         interval = 5
@@ -57,16 +54,11 @@ class DashboardAnalytics:
             l_stmt = select(func.count(Layer.id)).where(
                 (Layer.created_at >= d_start) & (Layer.created_at < d_end)
             )
-            p_stmt = select(func.count(Project.id)).where(
-                (Project.created_at >= d_start) & (Project.created_at < d_end)
-            )
             l_count = await self.db.scalar(l_stmt) or 0
-            p_count = await self.db.scalar(p_stmt) or 0
             data.append({
                 "date": d_start.isoformat(),
                 "capas": l_count,
                 "dataset": l_count * 200,
-                "proyectos": p_count
             })
         return data
 

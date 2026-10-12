@@ -1,5 +1,6 @@
 from app.db.session import Base
 from app.db.models.user import User
+# Modelos históricos conservados para que Alembic no proponga borrar tablas.
 from app.db.models.project import (
     Project, 
     ProjectLocation, 

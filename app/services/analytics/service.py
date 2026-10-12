@@ -29,7 +29,7 @@ class AnalyticsService:
         return await self.layers_svc.get_distribution()
 
     async def get_resource_usage(self, days: int = 90):
-        """Dataset histórico y proyectos creados."""
+        """Dataset histórico de capas."""
         return await self.dashboard_svc.get_resource_usage(days)
 
     async def get_system_status(self):

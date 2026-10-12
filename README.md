@@ -1,6 +1,6 @@
 # GeoMaps Backend
 
-Backend de GeoMaps construido con FastAPI, SQLAlchemy Async, PostgreSQL/PostGIS, Supabase y Google Gemini. Expone la API que alimenta el visor geoespacial, el panel administrativo, la gestion de proyectos, capas GIS, busqueda, descargas, API keys, usuarios, analitica e IA.
+Backend de GeoMaps construido con FastAPI, SQLAlchemy Async, PostgreSQL/PostGIS, Supabase y Google Gemini. Expone la API que alimenta el visor geoespacial, el panel administrativo, capas GIS, busqueda, descargas, API keys, usuarios, analitica e IA.
 
 Este README documenta la arquitectura real del backend, sus servicios, librerias, variables de entorno, comandos, rutas y responsabilidades.
 
@@ -29,9 +29,8 @@ Este README documenta la arquitectura real del backend, sus servicios, librerias
 | API REST | Expone rutas versionadas bajo `/api/v1`. |
 | Autenticacion | Valida JWT de Supabase, sincroniza usuarios y protege rutas privadas. |
 | Usuarios | Gestiona perfiles, roles, sesiones y operaciones administrativas. |
-| Proyectos | CRUD de proyectos, ubicacion, metricas, finanzas, ajustes de mapa, imagenes, modelos 3D y lotes. |
 | Capas GIS | Carga, almacena y consulta capas geograficas con features y geometria PostGIS. |
-| Busqueda | Busca proyectos, lotes y features por texto o coordenadas. |
+| Busqueda | Busca features GIS por texto o coordenadas. |
 | Descargas | Administra recursos descargables, archivos, metadatos y publicacion. |
 | API Keys | Emite, revoca, audita y monitorea llaves de API. |
 | Administracion | Dashboards, analitica, monitoreo de IA y gestion global. |
@@ -80,7 +79,7 @@ El backend usa una arquitectura modular por capas:
 | Schemas | `app/schemas` | Contratos Pydantic de request/response. |
 | Modelos DB | `app/db/models` | Tablas SQLAlchemy y tipos PostGIS. |
 | Sesion DB | `app/db/session.py` | Engine async y `AsyncSession`. |
-| Servicios | `app/services` | Reglas de negocio: proyectos, capas, descargas, busqueda, IA, analitica. |
+| Servicios | `app/services` | Reglas de negocio: capas, descargas, busqueda, IA, analitica. |
 | Repositorios | `app/repositories` | Acceso a datos y consultas reutilizables. |
 | Infraestructura | `app/infrastructure` | Clientes externos como Gemini y repositorios concretos. |
 | Dominio | `app/domain` | Modelos y servicios de dominio para permisos/roles. |
@@ -328,3 +327,7 @@ Los contratos consumidos por el frontend se reflejan especialmente en:
 - `src/core/types/*` del frontend.
 - `app/schemas/*` del backend.
 - `app/api/v1/*` y `app/api/routes/*` del backend.
+
+## Retiro del módulo de proyectos
+
+La funcionalidad de proyectos fue retirada del admin, del visor público y de la API. Los datos, las tablas, las migraciones y los archivos almacenados se conservan. Los modelos de proyectos del backend son históricos y permanecen registrados para evitar eliminaciones de tablas en futuras migraciones. Consulta `docs/project-module-removal.md` y el inventario `docs/removed-project-files.txt`.
