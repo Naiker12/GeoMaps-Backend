@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 from typing import List
 from uuid import UUID
 
 from app.db.session import get_db
 from app.db.models.user import User
-from app.schemas.user_schema import UserBase, UserUpdate, UserCreate
+from app.schemas.user_schema import UserBase, UserUpdate, UserProfileUpdate, UserCreate
 from app.core.security.dependencies import get_current_user
 from app.core.security.password import hash_password
 
@@ -27,7 +28,7 @@ async def create_user(
     
     db_obj = User(
         email=user_in.email,
-        hashed_password=hash_password(user_in.password),
+        hashed_password=await run_in_threadpool(hash_password, user_in.password),
         full_name=user_in.full_name,
         role=user_in.role or "USER",
         is_active=user_in.is_active if user_in.is_active is not None else True
@@ -60,7 +61,7 @@ async def get_my_profile(
 
 @router.patch("/me", response_model=UserBase)
 async def update_my_profile(
-    user_update: UserUpdate,
+    user_update: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -93,8 +94,6 @@ async def update_user(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
         
     if user_update.role is not None:
-        if user_update.role not in ["USER", "ADMIN", "SUPER_ADMIN", "EDITOR"]:
-            raise HTTPException(status_code=400, detail="Rol inválido")
         user.role = user_update.role
         
     if user_update.is_active is not None:

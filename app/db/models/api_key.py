@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, DateTime, func, ForeignKey, Integer, BigInteger, Boolean, Text
+from sqlalchemy import String, DateTime, func, ForeignKey, Integer, BigInteger, Boolean, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import INET, CIDR, JSONB
 from app.db.session import Base
@@ -71,6 +71,7 @@ class APIKeyUsageLog(Base):
     endpoint: Mapped[str] = mapped_column(String(255), index=True)
     method: Mapped[str] = mapped_column(String(10))
     status_code: Mapped[int] = mapped_column(Integer, index=True)
+    quota_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     response_time_ms: Mapped[int] = mapped_column(Integer)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -84,6 +85,7 @@ class APIKeyUsageLog(Base):
 
 class APIKeyDailyStats(Base):
     __tablename__ = "api_key_daily_stats"
+    __table_args__ = (UniqueConstraint("api_key_id", "stat_date", name="uq_api_key_daily_stats_key_date"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     api_key_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"), index=True)

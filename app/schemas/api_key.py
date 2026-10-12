@@ -15,7 +15,7 @@ class APIKeyBase(BaseModel):
     role: APIKeyRole = APIKeyRole.CLIENT
     visibility: APIKeyVisibility = APIKeyVisibility.PRIVATE
     expires_at: Optional[datetime] = None
-    rate_limit_rpm: Optional[int] = None
+    rate_limit_rpm: Optional[int] = Field(default=None, gt=0)
 
 
 class APIKeyCreate(APIKeyBase):
@@ -29,7 +29,7 @@ class APIKeyUpdate(BaseModel):
     role: Optional[APIKeyRole] = None
     visibility: Optional[APIKeyVisibility] = None
     expires_at: Optional[datetime] = None
-    rate_limit_rpm: Optional[int] = None
+    rate_limit_rpm: Optional[int] = Field(default=None, gt=0)
 
 
 class APIKeyResponse(APIKeyBase):

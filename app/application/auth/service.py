@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 from supabase import Client, create_client
 
 from app.core.config import settings
@@ -17,10 +19,9 @@ from app.core.security.jwt_handler import create_access_token
 from app.core.security.password import verify_password
 from app.core.utils.datetime import get_utc_now
 from app.db.models.admin import Admin
-from app.db.models.user import User
+from app.db.models.user import User, UserRole
 from app.db.models.user_session import UserSession
 from app.schemas.auth_schema import AuthResponse
-from app.schemas.user_schema import UserBase
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +45,20 @@ class AuthService:
         result = await db.execute(stmt)
         admin = result.scalar_one_or_none()
 
-        if not admin or not admin.is_active or not verify_password(password, admin.password_hash):
+        if not admin or not admin.is_active:
             return AuthResponse(success=False, message="Credenciales inválidas o cuenta inactiva")
+        if not await run_in_threadpool(verify_password, password, admin.password_hash):
+            return AuthResponse(success=False, message="Credenciales inválidas o cuenta inactiva")
+
+        result = await db.execute(select(User).where(User.email == admin.email))
+        user = result.scalar_one_or_none()
+        if user is None or not user.is_active or user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            return AuthResponse(success=False, message="No existe un perfil administrativo activo")
 
         # Iniciar sesión admin
         expires = get_utc_now() + timedelta(hours=24)
         session = UserSession(
-            user_id=admin.id,
+            user_id=user.id,
             session_type="admin",
             ip_address=ip,
             user_agent=ua,
@@ -60,21 +68,16 @@ class AuthService:
         await db.flush()
 
         # Generar token con rol
-        role = "SUPER_ADMIN" if admin.is_superadmin else "ADMIN"
-        token = create_access_token({"sub": str(admin.id), "sid": str(session.id), "role": role})
+        token = create_access_token({"sub": str(user.id), "sid": str(session.id), "role": user.role})
 
         await db.commit()
         return AuthResponse(
             success=True,
             access_token=token,
-            user=UserBase(
-                id=admin.id,
-                email=admin.email,
-                full_name="Administrator",
-                role=role,
-                is_active=admin.is_active,
-                created_at=admin.created_at,
-            ),
+            user={
+                "id": str(user.id), "email": user.email, "full_name": user.full_name,
+                "role": user.role, "avatar_url": user.avatar_url,
+            },
         )
 
     async def start_user_session(
@@ -92,10 +95,12 @@ class AuthService:
             raise HTTPException(status_code=401, detail="Token Supabase inválido: falta 'sub'")
 
         try:
-            supabase_id = uuid.UUID(sub)
-        except ValueError:
-            logger.error(f"ID de Supabase no es un UUID válido: {sub}")
-            raise HTTPException(status_code=400, detail=f"ID de Supabase inválido: {sub}")
+            supabase_id = uuid.UUID(str(sub))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise HTTPException(status_code=401, detail="Identidad Supabase inválida") from exc
+
+        if not isinstance(email, str) or not email.strip():
+            raise HTTPException(status_code=401, detail="El token Supabase no contiene un correo válido")
 
         logger.info(f"Sincronizando sesión para: {email} ({sub})")
 
@@ -105,6 +110,8 @@ class AuthService:
         user = result.scalar_one_or_none()
 
         if user:
+            if not user.is_active:
+                raise HTTPException(status_code=403, detail="Cuenta de usuario desactivada")
             logger.info(f"Usuario {email} encontrado localmente. Actualizando ID.")
             user.supabase_id = supabase_id
             user.email = email or user.email
@@ -137,32 +144,34 @@ class AuthService:
     async def _create_local_user(self, payload: dict, db: AsyncSession) -> User:
         """Helper privado para crear perfiles locales desde Supabase."""
         email = payload.get("email", "")
-        metadata = payload.get("user_metadata", {})
-        provider = payload.get("app_metadata", {}).get("provider", "supabase")
-
-        role_str = "ADMIN" if email == "admin@geomaps.com" or email.endswith("@geomaps.com") else "USER"
+        metadata = payload.get("user_metadata") or {}
+        app_metadata = payload.get("app_metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if not isinstance(app_metadata, dict):
+            app_metadata = {}
+        provider = app_metadata.get("provider", "supabase")
         name = metadata.get("name") or metadata.get("full_name") or email.split("@")[0]
 
-        from app.db.models.user import UserRole
-        role_enum = UserRole.ADMIN if role_str == "ADMIN" else UserRole.USER
-        
         user = User(
             supabase_id=uuid.UUID(payload["sub"]),
             email=email,
             full_name=name,
             avatar_url=metadata.get("avatar_url") or metadata.get("picture"),
             auth_provider=provider,
-            role=role_enum,
+            # Los privilegios se asignan explícitamente desde administración.
+            role=UserRole.USER,
             is_active=True,
         )
         db.add(user)
         try:
             await db.flush()
-            logger.info("👤 Perfil local creado: %s - Rol: %s", email, role_str)
+            logger.info("Perfil local creado: %s", email)
             return user
-        except Exception as exc:
+        except SQLAlchemyError as exc:
+            await db.rollback()
             logger.critical("Error sincronizando perfil: %s", exc)
-            raise HTTPException(status_code=500, detail="Fallo en sincronización local de perfil")
+            raise HTTPException(status_code=500, detail="Fallo en sincronización local de perfil") from exc
 
     async def update_user_profile(self, db: AsyncSession, user: User, update_data: Any) -> User:
         """Actualiza campos editables del perfil desde UserUpdate schema."""
