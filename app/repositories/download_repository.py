@@ -23,7 +23,8 @@ class DownloadRepository(BaseRepository[DownloadResource]):
         self, 
         show_in_public: bool | None = None,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        *, is_published: bool | None = None,
     ) -> Sequence[DownloadResource]:
         """Obtiene recursos filtrando por visibilidad y orden cronológico."""
         stmt = (
@@ -35,6 +36,8 @@ class DownloadRepository(BaseRepository[DownloadResource]):
         
         if show_in_public is not None:
             stmt = stmt.where(self.model.show_in_public == show_in_public)
+        if is_published is not None:
+            stmt = stmt.where(self.model.is_published == is_published)
             
         result = await self.db.execute(stmt)
         return result.scalars().all()
