@@ -11,5 +11,5 @@ Endpoints principales:
 
 Flujo:
 1. Cliente envia texto de busqueda o solicita sugerencias.
-2. SearchService consulta entidades/capas/proyectos segun implementacion.
+2. SearchService consulta entidades/capas segun implementacion.
 3. viewed registra elementos vistos para mejorar experiencia.

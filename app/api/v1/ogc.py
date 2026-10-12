@@ -8,6 +8,7 @@ from typing import Dict
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import get_current_active_user
@@ -21,7 +22,11 @@ MAX_PROXY_BYTES = 5 * 1024 * 1024
 
 
 def _validate_public_url(raw_url: str) -> str:
-    parsed = urlparse(raw_url.strip())
+    try:
+        parsed = urlparse(raw_url.strip())
+        port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="URL del servicio inválida.") from exc
 
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise HTTPException(
@@ -39,7 +44,6 @@ def _validate_public_url(raw_url: str) -> str:
             detail="No se permiten credenciales en la URL.",
         )
 
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     if port not in ALLOWED_PORTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,30 +98,28 @@ async def proxy_ogc_request(
 ) -> Response:
     """Proxy a bounded OGC request after validating the target URL."""
 
-    safe_url = _validate_public_url(url)
+    safe_url = await run_in_threadpool(_validate_public_url, url)
     upstream_url = _build_upstream_url(safe_url, dict(request.query_params))
 
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
-            upstream = await client.get(
-                upstream_url,
-                headers={"User-Agent": "GeoMaps-OGC-Proxy/1.0"},
-            )
+            async with client.stream(
+                "GET", upstream_url, headers={"User-Agent": "GeoMaps-OGC-Proxy/1.0"},
+            ) as upstream:
+                content = bytearray()
+                async for chunk in upstream.aiter_bytes(chunk_size=64 * 1024):
+                    if len(content) + len(chunk) > MAX_PROXY_BYTES:
+                        raise HTTPException(413, detail="La respuesta del servicio OGC excede el limite permitido.")
+                    content.extend(chunk)
+                upstream_status = upstream.status_code
+                content_type = upstream.headers.get("content-type", "application/xml")
     except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"No se pudo conectar con el servicio OGC: {exc}",
-        )
-
-    if len(upstream.content) > MAX_PROXY_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="La respuesta del servicio OGC excede el limite permitido.",
-        )
-
-    content_type = upstream.headers.get("content-type", "application/xml")
+            detail="No se pudo conectar con el servicio OGC.",
+        ) from exc
     return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
+        content=bytes(content),
+        status_code=upstream_status,
         media_type=content_type.split(";")[0],
     )

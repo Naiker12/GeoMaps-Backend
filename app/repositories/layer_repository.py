@@ -9,7 +9,7 @@ from typing import Any, Sequence
 from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.layer import Layer, LayerFeature
+from app.db.models.layer import Layer, LayerFeature, VisibilityEnum
 from app.repositories.base_repository import BaseRepository
 from app.schemas.layer import LayerCreate
 
@@ -26,7 +26,8 @@ class LayerRepository(BaseRepository[Layer]):
         geometry_type: str, 
         source_type: str, 
         file_url: str, 
-        user_id: uuid.UUID
+        user_id: uuid.UUID,
+        *, commit: bool = True,
     ) -> Layer:
         """Helper especializado para creación con metadatos cartográficos."""
         data = layer_in.model_dump()
@@ -37,15 +38,17 @@ class LayerRepository(BaseRepository[Layer]):
             "created_by": user_id,
             "visibility": layer_in.visibility.upper()
         })
-        return await self.create(data)
+        return await self.create(data, commit=commit)
 
-    async def get_unique_categories(self) -> list[str]:
+    async def get_unique_categories(self, *, public_only: bool = False) -> list[str]:
         """Obtiene el listado de categorías únicas registradas."""
         stmt = select(Layer.category).distinct().where(Layer.category.is_not(None)).order_by(Layer.category)
+        if public_only:
+            stmt = stmt.where(Layer.visibility == VisibilityEnum.PUBLIC)
         result = await self.db.execute(stmt)
         return [c for c in result.scalars().all() if c]
 
-    async def get_categories_tree(self) -> list[dict]:
+    async def get_categories_tree(self, *, public_only: bool = False) -> list[dict]:
         """Agrupa categorias y subcategorias a partir de las capas existentes."""
         stmt = (
             select(Layer.category, Layer.subcategory, func.count(Layer.id).label("layers_count"))
@@ -53,6 +56,8 @@ class LayerRepository(BaseRepository[Layer]):
             .group_by(Layer.category, Layer.subcategory)
             .order_by(Layer.category, Layer.subcategory)
         )
+        if public_only:
+            stmt = stmt.where(Layer.visibility == VisibilityEnum.PUBLIC)
         result = await self.db.execute(stmt)
 
         grouped: dict[str, dict] = {}
@@ -77,7 +82,7 @@ class LayerRepository(BaseRepository[Layer]):
             for item in grouped.values()
         ]
 
-    async def insert_features_bulk(self, layer_id: uuid.UUID, features: list[dict]):
+    async def insert_features_bulk(self, layer_id: uuid.UUID, features: list[dict], *, commit: bool = True):
         """Inserta features cartográficas en lotes para mayor rendimiento."""
         if not features: return
             
@@ -87,7 +92,7 @@ class LayerRepository(BaseRepository[Layer]):
                 "display_name": feat.get("display_name"),
                 "properties": feat["properties"],
                 # PostGIS: Convertir WKT a GEOMETRY indexable
-                "geom": text(f"ST_GeomFromText('{feat['geom_wkt']}', 4326)")
+                "geom": func.ST_GeomFromText(feat["geom_wkt"], 4326)
             }
             for feat in features
         ]
@@ -96,22 +101,26 @@ class LayerRepository(BaseRepository[Layer]):
         for i in range(0, len(mappings), chunk_size):
             await self.db.execute(insert(LayerFeature).values(mappings[i:i + chunk_size]))
         
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
     
-    async def delete_features_by_layer_id(self, layer_id: uuid.UUID) -> bool:
+    async def delete_features_by_layer_id(self, layer_id: uuid.UUID, *, commit: bool = True) -> bool:
         """Elimina todos los elementos geográficos asociados a una capa."""
         stmt = delete(LayerFeature).where(LayerFeature.layer_id == layer_id)
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
         return result.rowcount > 0
 
-    async def get_features_as_geojson(self, layer_id: uuid.UUID) -> dict:
+    async def get_features_as_geojson(self, layer_id: uuid.UUID, *, public_only: bool = False) -> dict:
         """Representa las geometrías de la capa como un FeatureCollection GeoJSON."""
         stmt = select(
             LayerFeature.id, 
             LayerFeature.properties, 
             func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
         ).where(LayerFeature.layer_id == layer_id)
+        if public_only:
+            stmt = stmt.where(LayerFeature.layer.has(Layer.visibility == VisibilityEnum.PUBLIC))
         
         result = await self.db.execute(stmt)
         rows = result.mappings().all()
@@ -129,23 +138,24 @@ class LayerRepository(BaseRepository[Layer]):
             ]
         }
 
-    async def get_features_properties(self, layer_ids: list[uuid.UUID]) -> list[dict]:
+    async def get_features_properties(self, layer_ids: list[uuid.UUID], *, public_only: bool = False) -> list[dict]:
         """Obtiene de forma eficiente las propiedades para paneles estadísticos."""
         stmt = select(LayerFeature.properties).where(LayerFeature.layer_id.in_(layer_ids))
+        if public_only:
+            stmt = stmt.where(LayerFeature.layer.has(Layer.visibility == VisibilityEnum.PUBLIC))
         result = await self.db.execute(stmt)
         return [{"properties": p} for p in result.scalars().all()]
 
-    async def get_feature_by_id(self, feature_id: Any) -> dict | None:
+    async def get_feature_by_id(self, feature_id: Any, *, public_only: bool = False) -> dict | None:
         """Detalle de una sola entidad geográfica. Soporta IDs numéricos."""
         try:
             # Intentar convertir a entero si es posible, ya que la columna es BigInt
             if isinstance(feature_id, str) and feature_id.isdigit():
                 f_id = int(feature_id)
-            elif isinstance(feature_id, (int, float)):
-                f_id = int(feature_id)
+            elif isinstance(feature_id, int) and not isinstance(feature_id, bool):
+                f_id = feature_id
             else:
-                # Si no es un número, intentar UUID por si acaso aunque la base diga BigInt
-                f_id = uuid.UUID(str(feature_id))
+                return None
         except (ValueError, TypeError):
             return None
 
@@ -156,38 +166,34 @@ class LayerRepository(BaseRepository[Layer]):
             LayerFeature.created_at,
             func.ST_AsGeoJSON(LayerFeature.geom).label('geometry')
         ).where(LayerFeature.id == f_id)
+        if public_only:
+            stmt = stmt.where(LayerFeature.layer.has(Layer.visibility == VisibilityEnum.PUBLIC))
 
-        try:
-            result = await self.db.execute(stmt)
-            row = result.mappings().first()
-            
-            if not row:
-                return None
-                
-            return {
-                "id": str(row['id']),
-                "layer_id": str(row['layer_id']),
-                "properties": row['properties'],
-                "lastUpdate": row['created_at'].isoformat() if row['created_at'] else None,
-                "geometry": json.loads(row['geometry'])
-            }
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Error en get_feature_by_id: {e}")
+        result = await self.db.execute(stmt)
+        row = result.mappings().first()
+        if not row:
             return None
+        return {
+            "id": str(row['id']),
+            "layer_id": str(row['layer_id']),
+            "properties": row['properties'],
+            "lastUpdate": row['created_at'].isoformat() if row['created_at'] else None,
+            "geometry": json.loads(row['geometry']),
+        }
 
-    async def get_field_values(self, layer_id: uuid.UUID, field_name: str) -> dict:
+    async def get_field_values(self, layer_id: uuid.UUID, field_name: str, *, public_only: bool = False) -> dict:
         """Obtiene valores únicos de un campo JSONB para simbología categorizada."""
         stmt = text(
             "SELECT DISTINCT properties->>:field AS val "
-            "FROM layer_features WHERE layer_id = :lid AND properties->>:field IS NOT NULL "
+            "FROM layer_features lf WHERE layer_id = :lid AND properties->>:field IS NOT NULL "
+            "AND (NOT :public_only OR EXISTS (SELECT 1 FROM layers l WHERE l.id = lf.layer_id AND l.visibility = 'PUBLIC')) "
             "ORDER BY val LIMIT 100"
         )
-        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id)})
+        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id), "public_only": public_only})
         values = [row[0] for row in result.fetchall()]
         return {"field": field_name, "values": values, "total_unique": len(values)}
 
-    async def get_field_stats(self, layer_id: uuid.UUID, field_name: str) -> dict:
+    async def get_field_stats(self, layer_id: uuid.UUID, field_name: str, *, public_only: bool = False) -> dict:
         """Obtiene estadísticas numéricas de un campo JSONB para simbología graduada."""
         stmt = text(
             "SELECT "
@@ -195,12 +201,13 @@ class LayerRepository(BaseRepository[Layer]):
             "  MAX((properties->>:field)::numeric) AS max_val, "
             "  AVG((properties->>:field)::numeric) AS avg_val, "
             "  COUNT(*) AS cnt "
-            "FROM layer_features "
+            "FROM layer_features lf "
             "WHERE layer_id = :lid "
+            "  AND (NOT :public_only OR EXISTS (SELECT 1 FROM layers l WHERE l.id = lf.layer_id AND l.visibility = 'PUBLIC')) "
             "  AND properties->>:field IS NOT NULL "
             "  AND (properties->>:field) ~ '^-?[0-9]+(\\.[0-9]+)?$'"
         )
-        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id)})
+        result = await self.db.execute(stmt, {"field": field_name, "lid": str(layer_id), "public_only": public_only})
         row = result.fetchone()
         if not row or row[3] == 0:
             return {"field": field_name, "min": None, "max": None, "avg": None, "count": 0}

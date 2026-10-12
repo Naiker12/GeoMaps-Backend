@@ -9,7 +9,7 @@ Riesgos:
 - Carga de archivos GIS pesados.
 - GeoJSON publico puede exponer datos sensibles si la capa se publica por error.
 - field-values y field-stats reciben nombre de campo desde cliente.
-- Eliminacion de capas puede afectar cartografia, descargas y proyectos.
+- Eliminacion de capas puede afectar cartografia y descargas.
 
 Recomendaciones:
 - Validar extension, tipo MIME y tamano de uploads.
