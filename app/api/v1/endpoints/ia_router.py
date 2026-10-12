@@ -14,9 +14,17 @@ from app.api.deps import get_current_active_user
 from app.db.models.user import User
 
 from app.core.exceptions import LLMException
+from app.services.ia.geo_context import resolve_geo_context
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _validate_geo_context(request: ChatRequest) -> None:
+    try:
+        resolve_geo_context(request.context_mapa, request.geo_context)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_ia(
@@ -25,6 +33,7 @@ async def chat_with_ia(
     current_user: User = Depends(get_current_active_user)
 ):
     """Endpoint sincrónico para chatear con la IA (Retrocompatibilidad)."""
+    _validate_geo_context(request)
     usage_service = UsageService(db)
     usage = await usage_service.get_user_usage(current_user.id)
     
@@ -55,6 +64,7 @@ async def chat_with_ia_stream(
     current_user: User = Depends(get_current_active_user)
 ):
     """Endpoint SSE para chatear con la IA con efecto máquina de escribir."""
+    _validate_geo_context(request)
     usage_service = UsageService(db)
     usage = await usage_service.get_user_usage(current_user.id)
     

@@ -39,6 +39,7 @@ class ChatResponse(BaseModel):
     tools_called_raw: List[Any] = Field(default_factory=list)
     map_actions: List[Dict[str, Any]] = Field(default_factory=list)
     analytics_data: Optional[Dict[str, Any]] = None
+    analysis_results: List[Dict[str, Any]] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
     pdf_export: bool = False
 
