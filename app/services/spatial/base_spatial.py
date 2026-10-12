@@ -3,9 +3,12 @@ GeoMaps — Base para Analizadores Espaciales.
 Clase base con helpers PostGIS compartidos por todos los analyzers.
 """
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from app.services.spatial.validation import normalize_bbox, validate_query_limit
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +21,13 @@ class BaseSpatialAnalyzer:
 
     def __init__(self, db: AsyncSession, bbox: Optional[Dict[str, float]] = None, layers: Optional[List[str]] = None):
         self.db = db
-        self.bbox = bbox
-        self.layers = layers or []
+        self.bbox = normalize_bbox(bbox)
+        self.layers = list(layers or [])
 
     def _layer_filter_clause(self, alias: str = "l") -> tuple[str, Dict[str, Any]]:
         """Limita consultas agregadas a las capas resueltas para el reporte."""
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", alias) is None:
+            raise ValueError("Alias SQL inválido")
         if not self.layers:
             return "", {}
         placeholders = []
@@ -40,6 +45,7 @@ class BaseSpatialAnalyzer:
         fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Consulta features de una capa dentro del bbox actual."""
+        validate_query_limit(limit)
         try:
             # Obtener layer_id
             layer_q = await self.db.execute(
@@ -92,10 +98,10 @@ class BaseSpatialAnalyzer:
 
             return features
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error en query_features_in_bbox: {e}")
             await self.db.rollback()
-            return []
+            raise
 
     async def count_features_in_bbox(self, layer_name: str) -> int:
         """Cuenta features de una capa dentro del bbox."""
@@ -131,10 +137,10 @@ class BaseSpatialAnalyzer:
             result = await self.db.execute(query, params)
             return result.scalar() or 0
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error en count_features_in_bbox: {e}")
             await self.db.rollback()
-            return 0
+            raise
 
     async def get_field_distribution(
         self,
@@ -143,6 +149,7 @@ class BaseSpatialAnalyzer:
         limit: int = 15
     ) -> List[Dict[str, Any]]:
         """Calcula distribución de valores de un campo (GROUP BY + COUNT)."""
+        validate_query_limit(limit)
         try:
             layer_q = await self.db.execute(
                 text("SELECT id FROM layers WHERE name = :name LIMIT 1"),
@@ -153,7 +160,7 @@ class BaseSpatialAnalyzer:
                 return []
 
             bbox_clause = ""
-            params: Dict[str, Any] = {"lid": layer_row, "lim": limit}
+            params: Dict[str, Any] = {"lid": layer_row, "lim": limit, "field": field}
 
             if self.bbox and all(k in self.bbox for k in ("xmin", "ymin", "xmax", "ymax")):
                 bbox_clause = """
@@ -166,7 +173,7 @@ class BaseSpatialAnalyzer:
 
             query = text(f"""
                 SELECT
-                    COALESCE(properties->>'{field}', 'Sin Especificar') as category,
+                    COALESCE(properties->>:field, 'Sin Especificar') as category,
                     COUNT(*) as count
                 FROM layer_features
                 WHERE layer_id = :lid
@@ -184,10 +191,10 @@ class BaseSpatialAnalyzer:
                 for row in rows
             ]
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error en get_field_distribution: {e}")
             await self.db.rollback()
-            return []
+            raise
 
     async def get_numeric_stats(
         self,
@@ -205,7 +212,10 @@ class BaseSpatialAnalyzer:
                 return {}
 
             bbox_clause = ""
-            params: Dict[str, Any] = {"lid": layer_row}
+            params: Dict[str, Any] = {
+                "lid": layer_row, "field": field,
+                "number_pattern": r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$",
+            }
 
             if self.bbox and all(k in self.bbox for k in ("xmin", "ymin", "xmax", "ymax")):
                 bbox_clause = """
@@ -219,14 +229,14 @@ class BaseSpatialAnalyzer:
             query = text(f"""
                 SELECT
                     COUNT(*) as total,
-                    ROUND(AVG((properties->>'{field}')::numeric), 2) as avg_val,
-                    MIN((properties->>'{field}')::numeric) as min_val,
-                    MAX((properties->>'{field}')::numeric) as max_val,
-                    ROUND(SUM((properties->>'{field}')::numeric), 2) as sum_val
+                    ROUND(AVG((properties->>:field)::numeric), 2) as avg_val,
+                    MIN((properties->>:field)::numeric) as min_val,
+                    MAX((properties->>:field)::numeric) as max_val,
+                    ROUND(SUM((properties->>:field)::numeric), 2) as sum_val
                 FROM layer_features
                 WHERE layer_id = :lid
-                  AND properties->>'{field}' IS NOT NULL
-                  AND properties->>'{field}' ~ '^[0-9]'
+                  AND properties->>:field IS NOT NULL
+                  AND btrim(properties->>:field) ~ :number_pattern
                 {bbox_clause}
             """)
 
@@ -244,10 +254,10 @@ class BaseSpatialAnalyzer:
                 "sum": float(row[4]) if row[4] else 0,
             }
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error en get_numeric_stats: {e}")
             await self.db.rollback()
-            return {}
+            raise
 
     async def get_available_layers_in_bbox(self) -> List[Dict[str, Any]]:
         """Lista las capas que tienen features dentro del bbox."""
@@ -287,7 +297,7 @@ class BaseSpatialAnalyzer:
                 for row in result.fetchall()
             ]
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error en get_available_layers_in_bbox: {e}")
             await self.db.rollback()
-            return []
+            raise

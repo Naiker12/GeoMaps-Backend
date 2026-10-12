@@ -24,6 +24,7 @@ from app.schemas.layer import (
     LayerResponse,
 )
 from app.services.layers import LayerService
+from app.services.storage import FileTooLargeError
 
 router = APIRouter()
 
@@ -61,28 +62,32 @@ async def upload_layer(
             file=file,
             user_id=current_user.id,
         )
+    except FileTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error procesando capa: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error procesando capa") from e
 
 
 @router.get("/categories", response_model=List[str])
 async def get_categories(
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Obtiene el listado de categorías únicas de las capas."""
     service = LayerService(db)
-    return await service.get_categories()
+    return await service.get_categories(public_only=current_user is None)
 
 
 @router.get("/categories/tree", response_model=List[LayerCategoryTreeItem])
 async def get_categories_tree(
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Obtiene categorias, subcategorias y conteo de capas."""
     service = LayerService(db)
-    return await service.get_categories_tree()
+    return await service.get_categories_tree(public_only=current_user is None)
 
 
 @router.get("/", response_model=List[Union[LayerResponse, LayerPublicResponse]])
@@ -152,7 +157,14 @@ async def update_layer(
             raise HTTPException(status_code=400, detail="Simbología inválida")
 
     service = LayerService(db)
-    layer = await service.update_layer(layer_id, update_data, file=file)
+    try:
+        layer = await service.update_layer(layer_id, update_data, file=file, actor=current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not layer:
         raise HTTPException(status_code=404, detail="Capa no encontrada")
@@ -164,6 +176,7 @@ async def update_layer(
 async def get_layers_features_properties(
     layer_ids: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     try:
         ids = [uuid.UUID(x.strip()) for x in layer_ids.split(",")]
@@ -171,16 +184,20 @@ async def get_layers_features_properties(
         raise HTTPException(status_code=400, detail="IDs inválidos")
 
     service = LayerService(db)
-    return await service.get_features_properties(ids)
+    return await service.get_features_properties(ids, public_only=current_user is None)
 
 
 @router.get("/features/{feature_id}", response_model=dict)
 async def get_feature_detail(
-    feature_id: str,
+    feature_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     service = LayerService(db)
-    return await service.get_feature_by_id(feature_id)
+    feature = await service.get_feature_by_id(feature_id, public_only=current_user is None)
+    if feature is None:
+        raise HTTPException(status_code=404, detail="Feature no encontrado")
+    return feature
 
 
 @router.get("/{layer_id}/field-values", response_model=dict)
@@ -188,10 +205,11 @@ async def get_field_values(
     layer_id: uuid.UUID,
     field: str = Query(..., description="Nombre del campo a consultar"),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Valores únicos de un campo para simbología categorizada."""
     service = LayerService(db)
-    return await service.get_field_values(layer_id, field)
+    return await service.get_field_values(layer_id, field, public_only=current_user is None)
 
 
 @router.get("/{layer_id}/field-stats", response_model=dict)
@@ -199,10 +217,11 @@ async def get_field_stats(
     layer_id: uuid.UUID,
     field: str = Query(..., description="Nombre del campo numérico"),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Estadísticas numéricas de un campo para simbología graduada."""
     service = LayerService(db)
-    return await service.get_field_stats(layer_id, field)
+    return await service.get_field_stats(layer_id, field, public_only=current_user is None)
 
 
 @router.get("/{layer_id}/features", response_model=FeatureCollectionSchema)
@@ -213,7 +232,7 @@ async def get_layer_geojson(
 ):
     """Obtiene el GeoJSON de la capa. Accesible públicamente desde el frontend."""
     service = LayerService(db)
-    return await service.get_layer_geojson(layer_id)
+    return await service.get_layer_geojson(layer_id, public_only=current_user is None)
 
 
 @router.delete("/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -223,4 +242,9 @@ async def delete_layer(
     current_user: User = Depends(get_current_active_user),
 ):
     service = LayerService(db)
-    await service.delete_layer(layer_id)
+    try:
+        deleted = await service.delete_layer(layer_id, actor=current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Capa no encontrada")

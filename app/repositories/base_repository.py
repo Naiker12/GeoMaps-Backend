@@ -20,9 +20,11 @@ class BaseRepository(Generic[ModelType]):
         self.model = model
         self.db = db
 
-    async def get(self, id: uuid.UUID | int) -> ModelType | None:
+    async def get(self, id: uuid.UUID | int, *, for_update: bool = False) -> ModelType | None:
         """Obtiene un registro por su ID único."""
         stmt = select(self.model).where(self.model.id == id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -43,18 +45,22 @@ class BaseRepository(Generic[ModelType]):
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    async def create(self, obj_in_data: dict[str, Any]) -> ModelType:
+    async def create(self, obj_in_data: dict[str, Any], *, commit: bool = True) -> ModelType:
         """Persiste un nuevo objeto en la base de datos."""
         db_obj = self.model(**obj_in_data)
         self.db.add(db_obj)
-        await self.db.commit()
-        await self.db.refresh(db_obj)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(db_obj)
+        else:
+            await self.db.flush()
         return db_obj
 
     async def update(
         self, 
         db_obj: ModelType, 
-        obj_in_data: dict[str, Any]
+        obj_in_data: dict[str, Any],
+        *, commit: bool = True,
     ) -> ModelType:
         """Actualiza campos específicos de un objeto persistido."""
         for field in obj_in_data:
@@ -62,8 +68,11 @@ class BaseRepository(Generic[ModelType]):
                 setattr(db_obj, field, obj_in_data[field])
         
         self.db.add(db_obj)
-        await self.db.commit()
-        await self.db.refresh(db_obj)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(db_obj)
+        else:
+            await self.db.flush()
         return db_obj
 
     async def delete(self, id: uuid.UUID | int) -> bool:

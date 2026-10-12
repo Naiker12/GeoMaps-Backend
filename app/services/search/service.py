@@ -1,5 +1,5 @@
 """Servicio de búsqueda global del Geoportal.
-Permite localizar geometrías (Features) y Proyectos mediante queries espaciales y de texto.
+Permite localizar geometrías (Features) mediante queries espaciales y de texto.
 
 Refactorizado para usar display_name + Full Text Search (FTS) con tsvector.
 Corrige: búsqueda por texto (antes buscaba properties->>'name' que no existía),
@@ -28,8 +28,9 @@ ROUTE_ALIASES = {
 class SearchService:
     """Implementa búsquedas transversales (Geográficas y Alfanuméricas)."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, *, public_only: bool = False):
         self.db = db
+        self.public_only = public_only
 
     def normalize_route_query(self, query: str) -> str:
         q = query.lower().strip()
@@ -51,30 +52,34 @@ class SearchService:
         if coord_match:
             lat = float(coord_match.group(1))
             lon = float(coord_match.group(2))
+            if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+                raise ValueError("Coordenadas fuera de rango: latitud [-90, 90], longitud [-180, 180]")
             return await self._search_by_coordinates(lat, lon)
 
         return await self._search_by_text(query)
 
     async def get_suggestions(self, limit: int = 5) -> list[str]:
         """Obtiene sugerencias automáticas usando display_name."""
+        if not 1 <= limit <= 50:
+            raise ValueError("El límite de sugerencias debe estar entre 1 y 50")
         # Features con display_name
         feature_stmt = text("""
             SELECT display_name
             FROM (
                 SELECT DISTINCT display_name
-                FROM layer_features
+                FROM layer_features lf
+                JOIN layers l ON l.id = lf.layer_id
                 WHERE display_name IS NOT NULL
+                  AND (NOT :public_only OR l.visibility = 'PUBLIC')
             ) AS distinct_features
             ORDER BY RANDOM()
             LIMIT :limit
         """)
-        features = (await self.db.execute(feature_stmt, {"limit": limit})).scalars().all()
+        features = (await self.db.execute(feature_stmt, {
+            "limit": limit, "public_only": self.public_only,
+        })).scalars().all()
 
-        # Proyectos por nombre
-        project_stmt = text("SELECT name FROM projects LIMIT :limit")
-        projects = (await self.db.execute(project_stmt, {"limit": limit})).scalars().all()
-
-        results = list(set([str(p) for p in list(features) + list(projects) if p]))
+        results = list(dict.fromkeys(str(item) for item in features if item))
         return results[:limit]
 
     async def _search_by_coordinates(self, lat: float, lon: float) -> dict[str, Any]:
@@ -101,16 +106,20 @@ class SearchService:
                     ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
                 ) AS dist_metros
             FROM layer_features lf
+            JOIN layers l ON l.id = lf.layer_id
             WHERE ST_DWithin(
                 lf.geom::geography,
                 ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
                 2000
             )
+            AND (NOT :public_only OR l.visibility = 'PUBLIC')
             ORDER BY dist_metros ASC
             LIMIT 15
         """)
 
-        result = await self.db.execute(stmt, {"lat": lat, "lon": lon})
+        result = await self.db.execute(stmt, {
+            "lat": lat, "lon": lon, "public_only": self.public_only,
+        })
         rows = result.mappings().all()
 
         features = []
@@ -162,17 +171,20 @@ class SearchService:
                     similarity(lf.display_name, :q) * 5
                 ) AS search_rank
             FROM layer_features lf
+            JOIN layers l ON l.id = lf.layer_id
             WHERE
-                lf.search_vector @@ plainto_tsquery('spanish', :q)
+                (lf.search_vector @@ plainto_tsquery('spanish', :q)
                 OR unaccent(lf.display_name) ILIKE unaccent(:ilike)
-                OR similarity(lf.display_name, :q) > 0.25
+                OR similarity(lf.display_name, :q) > 0.25)
+                AND (NOT :public_only OR l.visibility = 'PUBLIC')
             ORDER BY search_rank DESC, lf.display_name
             LIMIT 15
         """)
 
         result_features = await self.db.execute(stmt_features, {
             "q": query,
-            "ilike": f"%{query}%"
+            "ilike": f"%{query}%",
+            "public_only": self.public_only,
         })
         features_rows = result_features.mappings().all()
 
@@ -190,72 +202,22 @@ class SearchService:
                 "properties": props
             })
 
-        # Proyectos (Inmobiliarios)
-        stmt_projects = text("""
-            SELECT 
-                p.id::text,
-                p.name AS display_name,
-                p.description,
-                ST_AsGeoJSON(pl.geometry)::json AS geometry,
-                ARRAY[
-                    ST_XMin(ST_Envelope(pl.geometry)),
-                    ST_YMin(ST_Envelope(pl.geometry)),
-                    ST_XMax(ST_Envelope(pl.geometry)),
-                    ST_YMax(ST_Envelope(pl.geometry))
-                ] AS bbox,
-                similarity(p.name, :q) as project_rank
-            FROM projects p
-            LEFT JOIN project_locations pl ON p.id = pl.project_id
-            WHERE 
-                to_tsvector('spanish', p.name) @@ plainto_tsquery('spanish', :q)
-                OR unaccent(p.name) ILIKE unaccent(:ilike)
-                OR similarity(p.name, :q) > 0.25
-            ORDER BY project_rank DESC, p.name
-            LIMIT 5
-        """)
-        result_projects = await self.db.execute(stmt_projects, {
-            "q": query,
-            "ilike": f"%{query}%"
-        })
-        project_rows = result_projects.mappings().all()
+        return {"type": "FeatureCollection", "features": gis_features}
 
-        project_features = []
-        for p in project_rows:
-            project_features.append({
-                "type": "Feature",
-                "id": str(p["id"]),
-                "geometry": p["geometry"],
-                "properties": {
-                    "id": str(p["id"]),
-                    "name": p["display_name"],
-                    "display_name": p["display_name"],
-                    "description": p["description"],
-                    "source": "project",
-                    "bbox": p["bbox"]
-                }
-            })
-
-        return {
-            "type": "FeatureCollection",
-            "features": gis_features + project_features
-        }
-
-    async def log_view(self, feature_id: str, source: str) -> None:
-        """Actualiza la fecha de visualización de una entidad o proyecto."""
+    async def log_view(self, feature_id: int, source: str) -> None:
+        """Actualiza la fecha de visualización de una entidad geográfica."""
         if source == "feature":
             stmt = text("""
-                UPDATE layer_features 
-                SET fecha_ubicado = NOW() 
-                WHERE id = :id::uuid
-            """)
-        elif source == "project":
-            stmt = text("""
-                UPDATE projects 
-                SET updated_at = NOW() 
-                WHERE id = :id::uuid
+                UPDATE layer_features AS lf
+                SET last_viewed_at = NOW()
+                WHERE lf.id = :id
+                  AND (NOT :public_only OR EXISTS (
+                      SELECT 1 FROM layers l
+                      WHERE l.id = lf.layer_id AND l.visibility = 'PUBLIC'
+                  ))
             """)
         else:
             return
 
-        await self.db.execute(stmt, {"id": feature_id})
+        await self.db.execute(stmt, {"id": feature_id, "public_only": self.public_only})
         await self.db.commit()

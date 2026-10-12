@@ -60,5 +60,6 @@ class LayerFeature(Base):
     geom: Mapped[Any] = mapped_column(Geometry("GEOMETRY", srid=4326), nullable=False, index=True) # Index automatizado con GiST
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    last_viewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     layer: Mapped["Layer"] = relationship(back_populates="features")
