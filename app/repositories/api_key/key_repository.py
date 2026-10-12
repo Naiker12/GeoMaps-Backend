@@ -118,16 +118,15 @@ class APIKeyCoreRepository(BaseRepository[APIKey]):
                 select(
                     APIKeyUsageLog.api_key_id,
                     func.sum(case((APIKeyUsageLog.endpoint.like("%/layers%"), APIKeyUsageLog.tokens_used), else_=0)).label("layers"),
-                    func.sum(case((APIKeyUsageLog.endpoint.like("%/projects%"), APIKeyUsageLog.tokens_used), else_=0)).label("projects"),
                     func.sum(case((or_(APIKeyUsageLog.endpoint.like("%/downloads%"), APIKeyUsageLog.endpoint.like("%/export%")), APIKeyUsageLog.tokens_used), else_=0)).label("downloads"),
                 )
                 .where(APIKeyUsageLog.api_key_id.in_(key_ids))
                 .group_by(APIKeyUsageLog.api_key_id)
             )
             tokens_result = await self.db.execute(tokens_stmt)
-            tokens_map = {row.api_key_id: {"layers": int(row.layers or 0), "projects": int(row.projects or 0), "downloads": int(row.downloads or 0)} for row in tokens_result}
+            tokens_map = {row.api_key_id: {"layers": int(row.layers or 0), "downloads": int(row.downloads or 0)} for row in tokens_result}
 
             for k in keys_list:
-                setattr(k, "token_distribution", tokens_map.get(k.id, {"layers": 0, "projects": 0, "downloads": 0}))
+                setattr(k, "token_distribution", tokens_map.get(k.id, {"layers": 0, "downloads": 0}))
 
         return keys_list, total_count

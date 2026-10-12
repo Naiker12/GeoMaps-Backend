@@ -34,7 +34,10 @@ class APIKeyRepository(APIKeyCoreRepository):
 
     # ─── DELEGACIONES: Usage ──────────────────────────────────────────
 
-    async def log_usage(self, **kwargs) -> APIKeyUsageLog:
+    async def reserve_daily_quota(self, **kwargs) -> uuid.UUID | None:
+        return await self._usage.reserve_daily_quota(**kwargs)
+
+    async def log_usage(self, **kwargs) -> APIKeyUsageLog | None:
         return await self._usage.log_usage(**kwargs)
 
     async def log_failed_attempt(self, **kwargs) -> APIKeyUsageLog:

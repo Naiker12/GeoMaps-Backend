@@ -4,20 +4,17 @@ Provee autenticación, autorización, y servicios compartidos
 mediante el sistema de Depends de FastAPI.
 """
 
-import logging
-import uuid
-
-logger = logging.getLogger(__name__)
-
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.security.api_key_rate_limit import enforce_api_key_rate_limit
+from app.core.security.identity import ensure_active_user, resolve_token_user
+from app.core.utils.datetime import get_utc_now
 from app.db.models.user import User, UserRole
 from app.db.session import get_db
-from app.services.projects import ProjectService
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login",
@@ -35,54 +32,7 @@ async def get_current_user(
     token: str | None = Depends(oauth2_scheme_optional),
 ) -> User:
     """Valida el token (Local o Supabase) y retorna el usuario autenticado."""
-    from app.core.security.jwt_handler import decode_supabase_token, decode_token
-
-    effective_token = token or request.cookies.get("access_token")
-    if not effective_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No se proporcionó un token de autenticación",
-        )
-
-    # Priorizar token local
-    payload = decode_token(effective_token)
-    if not payload:
-        # Fallback a token de Supabase
-        payload = decode_supabase_token(effective_token)
-
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido o expirado (Backend & Supabase fallaron)",
-        )
-
-    user_id: str | None = payload.get("sub")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="El token no contiene el ID de usuario (sub)",
-        )
-
-    try:
-        user_uuid = uuid.UUID(user_id)
-        result = await db.execute(
-            select(User).where(or_(User.id == user_uuid, User.supabase_id == user_uuid))
-        )
-        user = result.scalar_one_or_none()
-    except Exception as e:
-        logger.error(f"Error buscando usuario {user_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Error al procesar la identidad del usuario",
-        )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no registrado en la base de datos local",
-        )
-
-    return user
+    return await resolve_token_user(db, token or request.cookies.get("access_token"))
 
 
 async def get_user_from_api_key(
@@ -98,13 +48,14 @@ async def get_user_from_api_key(
         )
 
     import hashlib
-    from datetime import datetime
 
     from sqlalchemy.orm import selectinload
 
     from app.db.models.api_key import APIKey, APIKeyStatus
 
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    if getattr(request.state, "authenticated_api_key_hash", None) == key_hash:
+        return request.state.authenticated_api_key_user
 
     result = await db.execute(
         select(APIKey)
@@ -121,6 +72,10 @@ async def get_user_from_api_key(
     request.state.api_key_id = db_key.id
     request.state.user_id = db_key.user_id
 
+    if db_key.expires_at is not None and db_key.expires_at <= get_utc_now():
+        raise HTTPException(status_code=401, detail="API Key expirada")
+    user = ensure_active_user(db_key.user)
+
     # Validar Cuota Diaria Restrictiva (10 peticiones/día)
     from app.services.api_keys import APIKeyService
 
@@ -132,12 +87,26 @@ async def get_user_from_api_key(
             detail="Límite de cuota diaria alcanzado para esta API Key.",
         )
 
+    await enforce_api_key_rate_limit(db_key.id, db_key.rate_limit_rpm)
+
+    reservation_id = await service.reserve_daily_quota(
+        api_key_id=db_key.id, user_id=db_key.user_id,
+        endpoint=request.url.path, method=request.method,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    if reservation_id is None:
+        raise HTTPException(429, detail="Límite de cuota diaria alcanzado para esta API Key.")
+    request.state.api_key_quota_reservation_id = reservation_id
+
     # Actualizar último uso
-    db_key.last_used = datetime.now()
+    db_key.last_used = get_utc_now()
     await db.commit()
+    request.state.authenticated_api_key_hash = key_hash
+    request.state.authenticated_api_key_user = user
 
     # db_key.user ya está cargado por selectinload — NO hace lazy load
-    return db_key.user
+    return user
 
 
 async def get_current_user_unified(
@@ -150,8 +119,10 @@ async def get_current_user_unified(
     if token or request.cookies.get("access_token"):
         try:
             return await get_current_user(request, db, token=token)
-        except HTTPException:
-            pass  # Si el JWT falla, probar con API Key
+        except HTTPException as exc:
+            api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+            if exc.status_code != 401 or not api_key:
+                raise
 
     # Intentar API Key
     return await get_user_from_api_key(request, db)
@@ -177,34 +148,18 @@ async def get_current_user_optional(
         return None
 
     try:
-        from app.core.security.jwt_handler import decode_supabase_token, decode_token
-
-        payload = decode_token(effective_token) or decode_supabase_token(
-            effective_token
-        )
-        if not payload:
+        return await resolve_token_user(db, effective_token)
+    except HTTPException as exc:
+        if exc.status_code in (401, 404):
             return None
-
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-
-        user_uuid = uuid.UUID(user_id)
-        result = await db.execute(
-            select(User).where(or_(User.id == user_uuid, User.supabase_id == user_uuid))
-        )
-        return result.scalar_one_or_none()
-    except Exception:
-        return None
+        raise
 
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user_unified),
 ) -> User:
     """Asegura que el usuario esté activo."""
-    if not current_user.is_active:
-        raise HTTPException(status_code=403, detail="Cuenta de usuario inactiva")
-    return current_user
+    return ensure_active_user(current_user)
 
 
 async def get_current_admin_user(
@@ -217,10 +172,3 @@ async def get_current_admin_user(
             detail="No tienes permisos de administrador para esta acción",
         )
     return current_user
-
-
-async def get_project_service(
-    db: AsyncSession = Depends(get_db),
-) -> ProjectService:
-    """Inyecta ProjectService con su repositorio."""
-    return ProjectService(db)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.api_key import APIKey, APIKeyStatus
 from app.repositories.api_key import APIKeyRepository
 from app.schemas.api_key import APIKeyCreate
+from app.core.utils.datetime import get_utc_now
 
 
 class APIKeyService:
@@ -46,11 +47,9 @@ class APIKeyService:
         if not is_admin and db_obj.user_id != user_id:
             return None
 
-        from datetime import datetime
-
         update_data = {
             "status": APIKeyStatus.REVOKED,
-            "revoked_at": datetime.now(),
+            "revoked_at": get_utc_now(),
             "revoked_by": user_id if is_admin else db_obj.user_id,
         }
 
@@ -83,6 +82,9 @@ class APIKeyService:
 
     async def log_api_usage(self, **kwargs):
         return await self.repository.log_usage(**kwargs)
+
+    async def reserve_daily_quota(self, **kwargs) -> uuid.UUID | None:
+        return await self.repository.reserve_daily_quota(**kwargs)
 
     async def log_failed_attempt(self, **kwargs):
         return await self.repository.log_failed_attempt(**kwargs)

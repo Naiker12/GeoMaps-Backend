@@ -16,14 +16,17 @@ from fastapi import (
 )
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.application.auth.service import auth_service
+from app.api.deps import get_current_active_user
+from app.core.security.cookies import is_local_origin
 from app.core.security.dependencies import get_current_user
 from app.core.security.jwt_handler import decode_supabase_token
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.auth_schema import SessionResponse
-from app.schemas.user_schema import UserBase, UserUpdate
+from app.schemas.user_schema import UserBase, UserProfileUpdate
 from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,7 @@ class SupabaseLoginRequest(BaseModel):
 
 
 def _is_local_origin(origin: str | None) -> bool:
-    return bool(origin and ("localhost" in origin or "127.0.0.1" in origin))
+    return is_local_origin(origin)
 
 
 def _cookie_security_options(request: Request) -> tuple[str, bool]:
@@ -53,7 +56,7 @@ async def login_supabase(
 ):
     """Sincroniza el login de Supabase con el servidor backend mediante cookies HttpOnly."""
     try:
-        payload = decode_supabase_token(body.access_token)
+        payload = await run_in_threadpool(decode_supabase_token, body.access_token)
         if not payload:
             raise HTTPException(
                 status_code=401, detail="Token Supabase inválido o expirado"
@@ -79,37 +82,33 @@ async def login_supabase(
             max_age=86400,
         )
 
-        # PERSISTIR CAMBIOS (Importante!)
-        await db.commit()
         await db.refresh(user)
 
         return user
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.error("Error en login_supabase: %s", exc)
-        if isinstance(exc, HTTPException):
-            raise exc
+        logger.exception("Error en login_supabase")
         raise HTTPException(
-            status_code=400, detail=f"Fallo en autenticación backend: {exc}"
-        )
+            status_code=500, detail="Fallo en autenticación backend"
+        ) from exc
 
 
 @router.get("/me", response_model=UserBase)
-async def get_my_profile(current_user: User = Depends(get_current_user)):
+async def get_my_profile(current_user: User = Depends(get_current_active_user)):
     """Obtiene el perfil del usuario autenticado actual."""
     return current_user
 
 
 @router.patch("/me", response_model=UserBase)
 async def update_my_profile(
-    user_update: UserUpdate,
+    user_update: UserProfileUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Actualiza datos del perfil (nombre, avatar, bio, etc)."""
     user = await auth_service.update_user_profile(db, current_user, user_update)
-    await db.commit()
-    await db.refresh(user)
     return user
 
 
@@ -121,10 +120,8 @@ async def upload_avatar(
 ):
     """Sube una imagen y la establece como avatar del usuario."""
     url = await storage_service.upload_file(file, "profiles")
-    update = UserUpdate(avatar_url=url)
+    update = UserProfileUpdate(avatar_url=url)
     user = await auth_service.update_user_profile(db, current_user, update)
-    await db.commit()
-    await db.refresh(user)
     return user
 
 

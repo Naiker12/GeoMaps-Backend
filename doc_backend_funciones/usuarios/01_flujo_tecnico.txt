@@ -21,4 +21,4 @@ Flujo:
 
 Relaciones:
 - Auth crea o resuelve usuarios.
-- API keys, proyectos, capas y soporte dependen de user_id.
+- API keys y capas y soporte dependen de user_id.

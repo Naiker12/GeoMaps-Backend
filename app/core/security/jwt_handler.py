@@ -1,154 +1,128 @@
-"""Gestión de tokens JWT (JSON Web Tokens).
-Implementa firmas de tokens mediante HS256 y verifica las procedentes de Supabase.
-Soporta ES256 para nuevos proyectos de Supabase mediante JWKS.
-"""
+"""JWT locales y Supabase con algoritmos y claims explícitos."""
 
-import logging
 import base64
 import json
+import logging
+import threading
 import time
-import httpx
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
-from authlib.jose import JoseError, JsonWebToken, JsonWebKey
+from typing import Any
+
+import httpx
+from authlib.jose import JoseError, JsonWebKey, JsonWebToken
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-# Instancias específicas para evitar confusiones de tipos de clave en Authlib
+LOCAL_ISSUER = "geomaps"
+MAX_TOKEN_LENGTH = 16_384
+JWKS_TTL_SECONDS = 600
+JWKS_RETRY_SECONDS = 60
 _jwt_hs = JsonWebToken(["HS256"])
-_jwt_all = JsonWebToken(["HS256", "RS256", "ES256"])
-
-# Cache para las llaves públicas de Supabase (JWKS)
+_jwt_asymmetric = JsonWebToken(["ES256", "RS256"])
 _supabase_jwks: dict[str, Any] = {}
-_last_jwks_fetch = 0
+_last_jwks_fetch: float | None = None
+_last_jwks_attempt: float | None = None
+_jwks_lock = threading.Lock()
 
-def _get_supabase_public_key(kid: str) -> Optional[Any]:
-    """Obtiene la llave pública desde el JWKS de Supabase."""
-    global _supabase_jwks, _last_jwks_fetch
-    
-    now = time.time()
-    # Refrescar cada 1 hora o si no tenemos la llave solicitada
-    if not _supabase_jwks or kid not in _supabase_jwks or (now - _last_jwks_fetch > 3600):
+
+def _get_supabase_public_key(kid: str) -> dict[str, Any] | None:
+    """Cache por proceso; limita recargas por kids desconocidos y fallos de red.
+
+    Los consumidores asíncronos ejecutan la verificación en el thread pool.
+    No se reutilizan llaves cuya cache superó diez minutos si falla la recarga.
+    """
+    global _supabase_jwks, _last_jwks_fetch, _last_jwks_attempt
+    with _jwks_lock:
+        now = time.monotonic()
+        fresh = _last_jwks_fetch is not None and now - _last_jwks_fetch < JWKS_TTL_SECONDS
+        if fresh and kid in _supabase_jwks:
+            return _supabase_jwks[kid]
+        if _last_jwks_attempt is not None and now - _last_jwks_attempt < JWKS_RETRY_SECONDS:
+            return _supabase_jwks.get(kid) if fresh else None
+        _last_jwks_attempt = now
+        url = f"{str(settings.SUPABASE_URL).rstrip('/')}/auth/v1/.well-known/jwks.json"
         try:
-            # Construir URL del JWKS desde el SUPABASE_URL
-            base_url = str(settings.SUPABASE_URL).rstrip("/")
-            url = f"{base_url}/auth/v1/.well-known/jwks.json"
-            
-            logger.info(f"Cargando JWKS desde Supabase: {url}")
-            response = httpx.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                _supabase_jwks = {k["kid"]: k for k in data.get("keys", [])}
-                _last_jwks_fetch = now
-                logger.info(f"JWKS de Supabase actualizado. Kids: {list(_supabase_jwks.keys())}")
-            else:
-                logger.error(f"Error cargando JWKS: {response.status_code} - {response.text}")
-        except Exception as e:
-            logger.error(f"Error inesperado cargando JWKS: {e}")
-            
-    return _supabase_jwks.get(kid)
+            response = httpx.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            keys = data.get("keys") if isinstance(data, dict) else None
+            if not isinstance(keys, list):
+                raise ValueError("Respuesta JWKS inválida")
+            updated = {
+                key["kid"]: key for key in keys
+                if isinstance(key, dict) and isinstance(key.get("kid"), str)
+                and key.get("kty") in ("EC", "RSA")
+            }
+            _supabase_jwks = updated
+            _last_jwks_fetch = time.monotonic()
+            return updated.get(kid)
+        except (httpx.HTTPError, ValueError, TypeError, RecursionError):
+            logger.warning("No se pudo actualizar la cache JWKS de Supabase")
+            return _supabase_jwks.get(kid) if fresh else None
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Genera un JWT firmado localmente con expiración configurable."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode.update({"exp": expire})
-    
-    header = {"alg": "HS256"}
-    payload = to_encode
-    secret = settings.SECRET_KEY.encode() if isinstance(settings.SECRET_KEY, str) else settings.SECRET_KEY
-    
-    return _jwt_hs.encode(header, payload, secret).decode("utf-8")
+def _read_header(token: str) -> dict[str, Any]:
+    if not isinstance(token, str) or len(token) > MAX_TOKEN_LENGTH:
+        raise ValueError("Token inválido")
+    parts = token.split(".")
+    if len(parts) != 3 or not all(parts) or len(parts[0]) > 2048:
+        raise ValueError("Formato JWT inválido")
+    header = json.loads(base64.b64decode(parts[0] + "=" * (-len(parts[0]) % 4), altchars=b"-_", validate=True))
+    if not isinstance(header, dict):
+        raise ValueError("Header JWT inválido")
+    return header
 
 
-def decode_supabase_token(token: str) -> Optional[dict[str, Any]]:
-    """Valida y decodifica un token de Supabase Identity mediante secreto compartido (HS256) o llave pública (ES256)."""
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    if not settings.SECRET_KEY:
+        raise RuntimeError("SECRET_KEY no está configurado")
+    now = datetime.now(timezone.utc)
+    lifetime = expires_delta if expires_delta is not None else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {**data, "iss": LOCAL_ISSUER, "iat": now, "exp": now + lifetime}
+    return _jwt_hs.encode({"alg": "HS256"}, payload, settings.SECRET_KEY.encode()).decode("utf-8")
+
+
+def decode_supabase_token(token: str) -> dict[str, Any] | None:
     try:
-        # Inspeccionar el header de forma manual para diagnóstico y ruteo
-        try:
-            parts = token.split(".")
-            header_b64 = parts[0]
-            missing_padding = len(header_b64) % 4
-            if missing_padding:
-                header_b64 += "=" * (4 - missing_padding)
-            header_json = base64.b64decode(header_b64).decode("utf-8")
-            unverified_header = json.loads(header_json)
-            alg = unverified_header.get("alg", "HS256")
-            kid = unverified_header.get("kid")
-        except Exception as e:
-            logger.warning(f"No se pudo leer el header del token manual: {e}")
-            alg = "HS256"
-            kid = None
-
-        # Ruteo según Algoritmo decubierto
-        if alg.startswith("HS"):
-            secret_str = settings.SUPABASE_JWT_SECRET
-            if not secret_str:
-                logger.error("Secreto JWT de Supabase no configurado para HS256")
+        header = _read_header(token)
+        alg = header.get("alg")
+        options = {
+            "exp": {"essential": True}, "sub": {"essential": True},
+            "iss": {"essential": True, "value": settings.SUPABASE_JWT_ISSUER or f"{str(settings.SUPABASE_URL).rstrip('/')}/auth/v1"},
+            "aud": {"essential": True, "value": "authenticated"},
+        }
+        if alg == "HS256":
+            if not settings.SUPABASE_JWT_SECRET:
                 return None
-                
-            try:
-                # Si parece b64 puro o largo
-                if "/" in secret_str or "+" in secret_str or secret_str.endswith("==") or len(secret_str) > 40:
-                    secret = base64.b64decode(secret_str)
-                else:
-                    secret = secret_str.encode()
-            except Exception:
-                secret = secret_str.encode()
-                
-            payload_claims = _jwt_hs.decode(token, secret)
-        
-        elif alg == "ES256" and kid:
-            # Caso Asimétrico: Usar JWKS de Supabase
-            jwk_data = _get_supabase_public_key(kid)
-            if not jwk_data:
-                logger.error(f"No se encontró la llave pública en JWKS para kid: {kid}")
+            # El secreto es texto literal, incluso si parece una cadena Base64.
+            claims = _jwt_hs.decode(token, settings.SUPABASE_JWT_SECRET.encode(), claims_options=options)
+        elif alg in ("ES256", "RS256"):
+            kid = header.get("kid")
+            if not isinstance(kid, str) or not kid or len(kid) > 256:
                 return None
-            
-            # Importar la llave JWK a un formato asimétrico válido para Authlib
-            public_key = JsonWebKey.import_key(jwk_data)
-            payload_claims = _jwt_all.decode(token, public_key)
-        
+            key = _get_supabase_public_key(kid)
+            if key is None or key.get("alg", alg) != alg:
+                return None
+            claims = _jwt_asymmetric.decode(token, JsonWebKey.import_key(key), claims_options=options)
         else:
-            logger.error(f"Algoritmo {alg} no soportado o falta 'kid' para validación asimétrica")
             return None
-
-        payload_claims.validate()
-        return payload_claims
-    except JoseError as exc:
-        if "expired" in str(exc).lower():
-            logger.warning(f"Token de Supabase expirado: {exc}")
-        else:
-            logger.warning(f"Falla en verificación Supabase ({alg}): {exc}")
-        return None
-    except Exception as exc:
-        logger.error(f"Error inesperado decodificando Supabase: {exc}", exc_info=True)
+        claims.validate()
+        return dict(claims)
+    except (JoseError, ValueError, TypeError, KeyError, RecursionError):
         return None
 
 
-def decode_token(token: str) -> Optional[dict[str, Any]]:
-    """Valida y decodifica un token generado por el backend de GeoMaps."""
+def decode_token(token: str) -> dict[str, Any] | None:
     try:
-        secret = settings.SECRET_KEY.encode() if isinstance(settings.SECRET_KEY, str) else settings.SECRET_KEY
-        # Localmente SIEMPRE usamos HS256
-        payload_claims = _jwt_hs.decode(token, secret)
-        payload_claims.validate()
-        return payload_claims
-    except JoseError as exc:
-        if "expired" in str(exc).lower():
-            logger.warning(f"Token local expirado: {exc}")
-        elif "unsupported_algorithm" in str(exc).lower():
-            # Esto es normal cuando se intenta validar un token de Supabase con HS256 local
-            logger.debug(f"Algoritmo no soportado localmente (probablemente Supabase): {exc}")
-        else:
-            logger.warning(f"Falla en verificación local: {exc}")
-        return None
-    except Exception as exc:
-        logger.error(f"Error inesperado decodificando local: {exc}")
+        if not settings.SECRET_KEY or _read_header(token).get("alg") != "HS256":
+            return None
+        claims = _jwt_hs.decode(token, settings.SECRET_KEY.encode(), claims_options={
+            "exp": {"essential": True}, "sub": {"essential": True},
+            # Tokens locales históricos sin iss conservan compatibilidad.
+            "iss": {"validate": lambda claims, value: value is None or value == LOCAL_ISSUER},
+        })
+        claims.validate()
+        return dict(claims)
+    except (JoseError, ValueError, TypeError, KeyError, RecursionError):
         return None

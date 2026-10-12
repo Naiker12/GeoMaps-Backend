@@ -1,9 +1,12 @@
 """Configuración centralizada de GeoMaps Backend mediante Pydantic Settings."""
 
+from pathlib import Path
 from typing import Any, List, Optional, Union
 
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -67,6 +70,7 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_JWT_SECRET: str
+    SUPABASE_JWT_ISSUER: Optional[str] = None
 
     # Modelos de IA (Gemini Nativo)
     GOOGLE_API: Optional[str] = None
@@ -90,7 +94,7 @@ class Settings(BaseSettings):
     SUPPORT_REPLY_TO_EMAIL: Optional[str] = None
 
     model_config = SettingsConfigDict(
-        case_sensitive=True, env_file=".env", extra="ignore"
+        case_sensitive=True, env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
 
 

@@ -3,11 +3,12 @@
 Contiene: get_stats_overview (admin), get_user_stats_summary (usuario).
 """
 import uuid
-from datetime import datetime
 from typing import Any, Dict
 
 from sqlalchemy import select, func, and_, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.limits import DAILY_API_KEY_LIMIT
+from app.core.utils.datetime import get_utc_now
 
 from app.db.models.api_key import (
     APIKey, APIKeyStatus, APIKeyUsageLog,
@@ -80,9 +81,6 @@ class APIKeyStatsRepository:
                     case((APIKeyUsageLog.endpoint.like("%/layers%"), APIKeyUsageLog.tokens_used), else_=0)
                 ).label("layers_tokens"),
                 func.sum(
-                    case((APIKeyUsageLog.endpoint.like("%/projects%"), APIKeyUsageLog.tokens_used), else_=0)
-                ).label("projects_tokens"),
-                func.sum(
                     case(
                         (
                             or_(
@@ -109,7 +107,7 @@ class APIKeyStatsRepository:
         # Rellenar todos los días de los últimos 30 días
         traffic_by_day = []
         import datetime as dt
-        today = dt.date.today()
+        today = get_utc_now().date()
         for i in range(29, -1, -1):
             target_date = today - dt.timedelta(days=i)
             row = raw_traffic.get(target_date)
@@ -120,7 +118,6 @@ class APIKeyStatsRepository:
                 "errors": int(row.errors) if row and row.errors else 0,
                 "tokens": {
                     "layers": int(row.layers_tokens or 0) if row else 0,
-                    "projects": int(row.projects_tokens or 0) if row else 0,
                     "downloads": int(row.downloads_tokens or 0) if row else 0,
                     "total": int(row.tokens or 0) if row else 0,
                 }
@@ -148,7 +145,6 @@ class APIKeyStatsRepository:
             "endpoint_distribution": endpoint_distribution,
             "token_distribution": {
                 "layers": sum(t["tokens"]["layers"] for t in traffic_by_day),
-                "projects": sum(t["tokens"]["projects"] for t in traffic_by_day),
                 "downloads": sum(t["tokens"]["downloads"] for t in traffic_by_day),
             }
         }
@@ -201,9 +197,6 @@ class APIKeyStatsRepository:
                     case((APIKeyUsageLog.endpoint.like("%/layers%"), APIKeyUsageLog.tokens_used), else_=0)
                 ).label("layers_tokens"),
                 func.sum(
-                    case((APIKeyUsageLog.endpoint.like("%/projects%"), APIKeyUsageLog.tokens_used), else_=0)
-                ).label("projects_tokens"),
-                func.sum(
                     case(
                         (
                             or_(
@@ -233,7 +226,7 @@ class APIKeyStatsRepository:
         # Rellenar todos los días de los últimos 20 días
         traffic_by_day = []
         import datetime as dt
-        today = dt.date.today()
+        today = get_utc_now().date()
         for i in range(19, -1, -1):
             target_date = today - dt.timedelta(days=i)
             row = raw_traffic.get(target_date)
@@ -244,13 +237,12 @@ class APIKeyStatsRepository:
                 "errors": int(row.errors) if row and row.errors else 0,
                 "tokens": {
                     "layers": int(row.layers_tokens or 0) if row else 0,
-                    "projects": int(row.projects_tokens or 0) if row else 0,
                     "downloads": int(row.downloads_tokens or 0) if row else 0,
                     "total": int(row.total_tokens or 0) if row else 0,
                 }
             })
 
-        daily_limit = 10
+        daily_limit = DAILY_API_KEY_LIMIT
 
         return {
             "today_requests": today_successful,  # Solo exitosas (para cuota)
@@ -262,12 +254,11 @@ class APIKeyStatsRepository:
             "monthly_usage": {
                 "used": today_successful,
                 "quota": daily_limit,
-                "cycle_end": datetime.now().strftime("%Y-%m-%d"),
+                "cycle_end": get_utc_now().strftime("%Y-%m-%d"),
             },
             "quota_status": quota_status,
             "token_distribution": {
                 "layers": sum(t["tokens"]["layers"] for t in traffic_by_day),
-                "projects": sum(t["tokens"]["projects"] for t in traffic_by_day),
                 "downloads": sum(t["tokens"]["downloads"] for t in traffic_by_day),
             },
             "traffic_by_day": traffic_by_day,

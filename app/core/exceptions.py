@@ -5,10 +5,12 @@ Los handlers aseguran CORS en respuestas de error.
 """
 
 import logging
+import re
 import traceback
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +30,6 @@ class MIDASException(Exception):
         self.status_code = status_code
         self.details = details
         super().__init__(message)
-
-
-class ProjectNotFoundException(MIDASException):
-    def __init__(self, project_id: str):
-        super().__init__(
-            message=f"Proyecto con ID {project_id} no encontrado",
-            code="PROJECT_NOT_FOUND",
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
 
 
 class UnauthorizedException(MIDASException):
@@ -130,9 +123,17 @@ def _build_error_response(
 def _inject_cors_headers(response: JSONResponse, request: Request) -> JSONResponse:
     """Inyecta headers CORS en la respuesta de error."""
     origin = request.headers.get("origin")
-    if origin:
+    allowed_origins = {
+        str(item).rstrip("/") for item in settings.BACKEND_CORS_ORIGINS
+    }
+    allowed_origins.add(str(settings.FRONTEND_URL).rstrip("/"))
+    if origin and (
+        origin in allowed_origins
+        or re.fullmatch(r"https?://(localhost|127\.0\.0\.1):\d+", origin)
+    ):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
     return response
 
 
@@ -150,7 +151,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     response = _build_error_response(
         status.HTTP_500_INTERNAL_SERVER_ERROR,
         "INTERNAL_SERVER_ERROR",
-        f"Error interno: {exc}",
+        "Error interno del servidor",
     )
     return _inject_cors_headers(response, request)
 
