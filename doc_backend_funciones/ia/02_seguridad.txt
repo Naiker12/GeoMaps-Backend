@@ -2,7 +2,7 @@ FUNCION: IA - SEGURIDAD
 
 Riesgos:
 - Prompt injection.
-- Exposicion de datos privados de capas/proyectos.
+- Exposicion de datos privados de capas.
 - Herramientas IA ejecutando acciones no autorizadas.
 - Costos altos por abuso.
 - Audio/transcripcion con datos sensibles.

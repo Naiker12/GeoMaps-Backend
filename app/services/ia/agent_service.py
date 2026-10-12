@@ -13,6 +13,7 @@ from app.services.ia.tools import ToolsService
 from app.services.ia.zone_extractor import extract_zone_names
 from app.schemas.ia import ChatRequest, ChatResponse, Message, IAModelConfig
 from app.core.exceptions import LLMException
+from app.services.ia.geo_context import normalize_extent_to_bbox, resolve_geo_context
 
 COMPARISON_KEYWORDS = ["compara", "comparar", "comparacion", "comparación", " vs ", " versus ", "diferencia", "diferencias"]
 EXPLICIT_STATS_KEYWORDS = [
@@ -47,18 +48,6 @@ def should_expose_tool_visual(message: str, layer_name: Optional[str], tool_name
     if layer_lower and layer_lower in msg_lower:
         return True
     return False
-
-def normalize_extent_to_bbox(extent: Any) -> Optional[List[float]]:
-    """Convierte objetos de extensión de ArcGIS serializados por el frontend en una lista bbox [xmin, ymin, xmax, ymax]."""
-    if not extent:
-        return None
-    if isinstance(extent, list) and len(extent) >= 4:
-        return [float(extent[0]), float(extent[1]), float(extent[2]), float(extent[3])]
-    if isinstance(extent, dict):
-        keys = ("xmin", "ymin", "xmax", "ymax")
-        if all(extent.get(key) is not None for key in keys):
-            return [float(extent[key]) for key in keys]
-    return None
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +312,18 @@ class AgentService:
             ],
         )
 
+    async def _get_or_create_conversation(self, request: ChatRequest, user: Any, model_config: IAModelConfig):
+        if request.conversation_id:
+            result = await self.db.execute(
+                text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
+                {"cid": request.conversation_id, "uid": user.id},
+            )
+            if result.fetchone():
+                return request.conversation_id
+        return await self.history_service.create_conversation(
+            user_id=user.id, title=request.message[:50] + "...", model_id=model_config.model_id,
+        )
+
     async def chat(self, request: ChatRequest, user: Any) -> ChatResponse:
         start_time = time.time()
         
@@ -332,21 +333,7 @@ class AgentService:
             if not model_config:
                 raise ValueError("No hay modelos de IA activos disponibles en el sistema.")
 
-        conv_id = request.conversation_id
-        if conv_id:
-            check_exists = await self.db.execute(
-                text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
-                {"cid": conv_id, "uid": user.id}
-            )
-            if not check_exists.fetchone():
-                conv_id = None
-
-        if not conv_id:
-            conv_id = await self.history_service.create_conversation(
-                user_id=user.id, 
-                title=request.message[:50] + "...", 
-                model_id=model_config.model_id
-            )
+        conv_id = await self._get_or_create_conversation(request, user, model_config)
 
         fast_response = await self._try_fast_zone_comparison(
             request,
@@ -377,31 +364,14 @@ class AgentService:
             except Exception as e:
                 logger.warning(f"No se pudo generar el resumen automático: {e}")
 
-        if needs_chart_clarification(request.message):
-            final_response = "Para preparar tu gráfico, por favor indícame:\n1. ¿Tipo de gráfico? (Barras, Pastel, Línea)\n2. ¿Nivel de detalle? (Resumen, Completo, Por barrio)\n3. ¿Quieres compararlo con otra variable o período?"
-            await self.history_service.save_message(conv_id, "user", request.message)
-            await self.history_service.save_message(conv_id, "assistant", final_response)
-            return ChatResponse(
-                message=final_response,
-                conversation_id=conv_id,
-                model_used=model_config.name,
-                latency_ms=0,
-                map_actions=[],
-                tools_called=[]
-            )
-
         available_layers = await self._get_available_layers()
-        geo_context = request.geo_context or {}
-        active_zone = geo_context.get("conversation_zone") if isinstance(geo_context, dict) else None
-        conversation_layers = geo_context.get("conversation_layers", []) if isinstance(geo_context, dict) else []
-        applied_filters = geo_context.get("applied_filters", []) if isinstance(geo_context, dict) else []
-        bbox = (
-            normalize_extent_to_bbox(active_zone.get("bbox")) if isinstance(active_zone, dict) else None
-        ) or normalize_extent_to_bbox(
-            geo_context.get("conversation_extent") if isinstance(geo_context, dict) else None
-        ) or (
-            normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
-        )
+        geo = resolve_geo_context(request.context_mapa, request.geo_context)
+        active_zone = geo["active_zone"]
+        conversation_layers = geo["conversation_layers"]
+        applied_filters = geo["applied_filters"]
+        bbox = geo["bbox"]
+        self._analysis_bbox = bbox
+        self._analysis_zone_geometry = active_zone.get("geometry") if isinstance(active_zone, dict) else None
         system_prompt = self.prompt_builder.build_system_prompt(
             bbox=bbox,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
@@ -462,6 +432,7 @@ class AgentService:
         map_actions = []
         tools_called = []
         analytics_data = None
+        analysis_results = []
         executed_tool_calls = []
 
         try:
@@ -512,6 +483,8 @@ class AgentService:
                     )
 
                     if isinstance(tool_result, dict):
+                        if tool_result.get("success", True) and isinstance(tool_result.get("analysis"), dict):
+                            analysis_results.append(tool_result["analysis"])
                         if expose_tool_visual and tool_result.get("map_action"): map_actions.append(tool_result)
                         if expose_tool_visual and tool_result.get("map_actions"):
                             for action in tool_result["map_actions"]:
@@ -552,7 +525,7 @@ class AgentService:
                 metadata={
                     "model": model_config.model_id, 
                     "map_actions": map_actions,
-                    "analytics_data": analytics_data
+                    "analysis_results": analysis_results, "analytics_data": analytics_data
                 }
             )
 
@@ -573,7 +546,8 @@ class AgentService:
                 tools_called=tools_called,
                 tools_called_raw=executed_tool_calls,
                 map_actions=map_actions,
-                analytics_data=analytics_data
+                analytics_data=analytics_data,
+                analysis_results=analysis_results,
             )
         except Exception as e:
             logger.error(f"Error en AgentService.chat: {e}")
@@ -590,23 +564,25 @@ class AgentService:
                 yield f"data: {json.dumps({'type': 'error', 'content': 'No hay modelos activos'})}\n\n"
                 return
 
-        conv_id = request.conversation_id
-        if not conv_id:
-            conv_id = await self.history_service.create_conversation(
-                user_id=user.id, title=request.message[:50] + "...", model_id=model_config.model_id
-            )
+        conv_id = await self._get_or_create_conversation(request, user, model_config)
 
         history = await self.history_service.get_trimmed_history(conv_id, user.id, max_messages=10)
         conversation_summary = await self.history_service.get_conversation_summary(conv_id)
         
         available_layers = await self._get_available_layers()
-        bbox = normalize_extent_to_bbox(request.context_mapa.get("extent")) if request.context_mapa else None
+        geo = resolve_geo_context(request.context_mapa, request.geo_context)
+        bbox = geo["bbox"]
+        self._analysis_bbox = bbox
+        self._analysis_zone_geometry = geo["active_zone"].get("geometry") if isinstance(geo["active_zone"], dict) else None
         system_prompt = self.prompt_builder.build_system_prompt(
             bbox=bbox,
             active_layers=[l["name"] for l in request.context_mapa.get("layers", [])] if request.context_mapa and request.context_mapa.get("layers") else None,
             available_layers=available_layers,
             user_name=user.full_name or user.email,
-            conversation_summary=conversation_summary
+            conversation_summary=conversation_summary,
+            active_zone=geo["active_zone"],
+            conversation_layers=geo["conversation_layers"],
+            applied_filters=geo["applied_filters"],
         )
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -631,6 +607,7 @@ class AgentService:
         total_tokens_out = 0
         map_actions = []
         analytics_data = None
+        analysis_results = []
         
         iterations = 0
         max_iterations = 3
@@ -691,6 +668,8 @@ class AgentService:
                 )
 
                 if isinstance(tool_result, dict):
+                    if tool_result.get("success", True) and isinstance(tool_result.get("analysis"), dict):
+                        analysis_results.append(tool_result["analysis"])
                     if expose_tool_visual and tool_result.get("map_action"): map_actions.append(tool_result)
                     if expose_tool_visual and tool_result.get("map_actions"): map_actions.extend(tool_result["map_actions"])
                     if expose_tool_visual and tool_result.get("analytics_data"): analytics_data = tool_result.get("analytics_data")
@@ -716,7 +695,7 @@ class AgentService:
                 metadata={
                     "model": model_config.model_id, 
                     "map_actions": map_actions, 
-                    "analytics_data": analytics_data,
+                    "analysis_results": analysis_results, "analytics_data": analytics_data,
                     "suggestions": suggestions
                 }
             )
@@ -727,11 +706,18 @@ class AgentService:
         
         await self._save_audit_log(user.id, conv_id, model_config.name, total_tokens_in, total_tokens_out, cost, latency_ms)
 
-        yield f"data: {json.dumps({'type': 'done', 'map_actions': map_actions, 'analytics_data': analytics_data, 'suggestions': suggestions, 'tokens_input': total_tokens_in, 'tokens_output': total_tokens_out, 'cost': cost})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'map_actions': map_actions, 'analysis_results': analysis_results, 'analytics_data': analytics_data, 'suggestions': suggestions, 'tokens_input': total_tokens_in, 'tokens_output': total_tokens_out, 'cost': cost})}\n\n"
 
     async def _execute_tool(self, name: str, args: dict) -> Any:
         try:
-            if name == "consultar_predios": return await self.tools_service.consultar_predios(**args)
+            args = dict(args)
+            if name == "analizar_capa_geografica" and args.get("scope") != "entire_layer" and args.get("coordinates") is None and args.get("zone_geometry") is None and getattr(self, "_analysis_zone_geometry", None) is not None:
+                args["zone_geometry"] = self._analysis_zone_geometry
+            if name in {"analizar_capa_geografica", "analizar_zona_extent", "consultar_estadisticas_capa", "consultar_datos_tabla"} and args.get("bbox") is None and args.get("scope") != "entire_layer" and args.get("coordinates") is None:
+                if getattr(self, "_analysis_bbox", None) is not None and not (name == "analizar_capa_geografica" and args.get("zone_geometry") is not None):
+                    args["bbox"] = list(self._analysis_bbox)
+            if name == "analizar_capa_geografica": return await self.tools_service.analizar_capa_geografica(**args)
+            elif name == "consultar_predios": return await self.tools_service.consultar_predios(**args)
             elif name == "analizar_zona_extent": return await self.tools_service.analizar_zona_extent(**args)
             elif name == "consultar_estadisticas_capa": return await self.tools_service.consultar_estadisticas_capa(**args)
             elif name == "activate_layer": return await self.tools_service.activate_layer(**args)
@@ -743,9 +729,13 @@ class AgentService:
             elif name == "mostrar_ruta_animada": return await self.tools_service.mostrar_ruta_animada(**args)
             elif name == "listar_campos_capa": return await self.tools_service.listar_campos_capa(**args)
             elif name == "consultar_datos_tabla": return await self.tools_service.consultar_datos_tabla(**args)
-            else: return f"Error: La herramienta {name} no existe."
-        except Exception as e:
-            return {"error": str(e)}
+            else: return {"success": False, "error": "Herramienta no disponible"}
+        except (ValueError, TypeError) as exc:
+            return {"success": False, "error": str(exc), "code": "INVALID_TOOL_ARGUMENTS"}
+        except Exception:
+            logger.exception("Falló la herramienta de IA %s", name)
+            await self.db.rollback()
+            return {"success": False, "error": "No se pudo consultar la información; intenta nuevamente", "code": "TOOL_EXECUTION_FAILED"}
 
     async def _save_audit_log(self, user_id: UUID, conversation_id: UUID, model_name: str, tokens_in: int, tokens_out: int, cost: float, latency_ms: int):
         # Siempre insertamos un nuevo registro para cada turno de chat

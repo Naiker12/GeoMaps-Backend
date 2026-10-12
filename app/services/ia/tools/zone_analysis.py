@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List
 
 from sqlalchemy import text
+from app.services.ia.geo_context import normalize_extent_to_bbox
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,9 @@ class ZoneAnalysisTools:
     async def analizar_zona_extent(self, bbox: List[float]) -> Dict[str, Any]:
         """Realiza un resumen estadistico por capas dentro de un bbox."""
         try:
+            bbox = normalize_extent_to_bbox(bbox)
+            if bbox is None:
+                return {"success": False, "needs_clarification": True, "error": "Selecciona un área del mapa para analizarla"}
             xmin, ymin, xmax, ymax = bbox
             stmt = text("""
                 SELECT
@@ -17,7 +21,10 @@ class ZoneAnalysisTools:
                     count(*) as count
                 FROM layer_features lf
                 JOIN layers l ON l.id = lf.layer_id
-                WHERE lf.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                WHERE l.visibility != 'PRIVATE'
+                  AND lf.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                  AND CASE WHEN ST_IsValid(lf.geom)
+                      THEN ST_Intersects(lf.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) ELSE FALSE END
                 GROUP BY l.name
                 ORDER BY count DESC
             """)
@@ -41,7 +48,7 @@ class ZoneAnalysisTools:
                 },
                 "analytics_data": {
                     "type": "table",
-                    "title": "Analisis de Cobertura en Zona",
+                    "title": "Elementos que intersectan el área seleccionada",
                     "subtitle": f"Se identificaron {total_features} elementos en {total_layers} categorias",
                     "data": breakdown,
                     "columns": [
@@ -50,6 +57,8 @@ class ZoneAnalysisTools:
                     ],
                     "report_available": True,
                 },
+                "analysis": {"source": "PostGIS", "bbox": bbox, "method": "ST_Intersects", "total_features": total_features,
+                             "warnings": ["Conteo de elementos; no representa porcentaje de cobertura. Se excluyen geometrías inválidas y capas privadas."]},
                 "mensaje": f"He analizado el area seleccionada y encontre {total_features} elementos distribuidos en {total_layers} capas.",
             }
         except Exception as exc:

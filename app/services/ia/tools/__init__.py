@@ -8,6 +8,7 @@ from .layer_stats import LayerStatsTools
 from .map_controls import MapControlTools
 from .route_tools import RouteTools
 from .zone_analysis import ZoneAnalysisTools
+from .geographic_analysis import GeographicAnalysisTools
 
 
 class ToolsService(
@@ -16,6 +17,7 @@ class ToolsService(
     MapControlTools,
     RouteTools,
     ZoneAnalysisTools,
+    GeographicAnalysisTools,
 ):
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -24,6 +26,19 @@ class ToolsService(
     async def get_tools_metadata(self) -> List[Dict[str, Any]]:
         """Devuelve la definicion de herramientas para el LLM."""
         return [
+            {"type": "function", "function": {
+                "name": "analizar_capa_geografica",
+                "description": "Cuenta geometrías válidas de una capa, muestra un gráfico y calcula la suma de áreas de polígonos en m². Usa bbox para intersección exacta o coordenadas y radio para proximidad en metros. Declara alcance, fuente y limitaciones; no calcula cobertura sin solapamientos.",
+                "parameters": {"type": "object", "properties": {
+                    "layer_name": {"type": "string", "description": "Nombre de la capa a analizar."},
+                    "layer_id": {"type": "string", "description": "UUID devuelto por la herramienta para resolver nombres ambiguos; no lo inventes."},
+                    "scope": {"type": "string", "enum": ["current_area", "entire_layer"], "description": "current_area usa el área activa; entire_layer solo si el usuario pide toda la capa."},
+                    "bbox": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                    "coordinates": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2, "description": "Punto [longitud, latitud]."},
+                    "radius_m": {"type": "number", "minimum": 1, "maximum": 50000},
+                    "zone_geometry": {"type": "object", "description": "Polígono o MultiPolygon GeoJSON EPSG:4326 de una zona localizada; nunca inventar sus coordenadas."},
+                }, "required": ["layer_name"]},
+            }},
             {
                 "type": "function",
                 "function": {
