@@ -6,13 +6,13 @@ import logging
 import os
 import json
 import uuid
-from datetime import datetime
 from typing import Dict, Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
+from app.core.utils.datetime import get_utc_now
 from app.api.deps import get_current_active_user
 from app.db.models.user import User
 from app.services.report.report_engine import ReportEngine
@@ -24,6 +24,7 @@ from app.schemas.report_schemas import (
 )
 from app.core.config import settings
 import redis.asyncio as redis
+from redis.exceptions import RedisError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,7 +38,6 @@ REPORT_TTL = 3600  # 1 hora
 async def generate_report(
     request: ReportRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -48,6 +48,7 @@ async def generate_report(
     # Inicializar estado en Redis
     report_status = {
         "id": report_id,
+        "user_id": str(current_user.id),
         "status": "processing",
         "progress": 10,
         "type": "custom",
@@ -55,16 +56,18 @@ async def generate_report(
         "layers": request.specific_layers or request.active_layers,
         "kpis": [],
         "progress_message": "Preparando alcance del reporte...",
-        "created_at": datetime.now().isoformat(),
+        "created_at": get_utc_now().isoformat(),
     }
-    await redis_client.setex(f"report:{report_id}", REPORT_TTL, json.dumps(report_status))
+    try:
+        await redis_client.setex(f"report:{report_id}", REPORT_TTL, json.dumps(report_status))
+    except RedisError as exc:
+        raise HTTPException(503, detail="El servicio de reportes no está disponible") from exc
 
     # Iniciar generación en segundo plano
     background_tasks.add_task(
         _generate_pdf_background,
         report_id,
         request,
-        db,
         str(current_user.id),
     )
 
@@ -75,13 +78,9 @@ async def generate_report(
 
 
 @router.get("/status/{report_id}", response_model=ReportStatusResponse)
-async def get_report_status(report_id: str):
+async def get_report_status(report_id: uuid.UUID, current_user: User = Depends(get_current_active_user)):
     """Consulta el estado de generación de un reporte."""
-    data = await redis_client.get(f"report:{report_id}")
-    if not data:
-        raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
-    
-    info = json.loads(data)
+    info = await _get_owned_report(report_id, current_user.id)
     return ReportStatusResponse(
         report_id=info["id"],
         status=info["status"],
@@ -98,13 +97,9 @@ async def get_report_status(report_id: str):
 
 
 @router.get("/download/{report_id}")
-async def download_report_pdf(report_id: str):
+async def download_report_pdf(report_id: uuid.UUID, current_user: User = Depends(get_current_active_user)):
     """Descarga el PDF generado."""
-    data = await redis_client.get(f"report:{report_id}")
-    if not data:
-        raise HTTPException(status_code=404, detail="Reporte no encontrado")
-    
-    report_info = json.loads(data)
+    report_info = await _get_owned_report(report_id, current_user.id)
     if report_info.get("status") != "completed":
         raise HTTPException(status_code=400, detail="El reporte aún no está listo")
 
@@ -115,7 +110,7 @@ async def download_report_pdf(report_id: str):
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
-        filename=f"GeoMaps_Reporte_{report_id[:8]}.pdf"
+        filename=f"GeoMaps_Reporte_{str(report_id)[:8]}.pdf"
     )
 
 
@@ -132,8 +127,26 @@ async def get_report_types(
 async def _generate_pdf_background(
     report_id: str,
     request: ReportRequest,
-    db: AsyncSession,
     user_id: str,
+):
+    """El trabajo posee su sesión; no reutiliza la sesión de la petición HTTP."""
+    async with SessionLocal() as db:
+        await _generate_report_in_session(report_id, request, db, user_id)
+
+
+async def _get_owned_report(report_id: uuid.UUID, user_id: uuid.UUID) -> Dict[str, Any]:
+    try:
+        data = await redis_client.get(f"report:{report_id}")
+    except RedisError as exc:
+        raise HTTPException(503, detail="El servicio de reportes no está disponible") from exc
+    info = json.loads(data) if data else None
+    if not isinstance(info, dict) or info.get("user_id") != str(user_id):
+        raise HTTPException(404, detail="Reporte no encontrado o expirado")
+    return info
+
+
+async def _generate_report_in_session(
+    report_id: str, request: ReportRequest, db: AsyncSession, user_id: str,
 ):
     """Proceso asíncrono de generación de PDF."""
     try:
@@ -182,14 +195,14 @@ async def _generate_pdf_background(
             "pdf_path": pdf_path,
             "renderer": "typst",
             "progress_message": "Reporte listo para descargar.",
-            "completed_at": datetime.now().isoformat()
+            "completed_at": get_utc_now().isoformat()
         })
 
     except Exception as e:
         logger.exception(f"Error en background report generation: {e!r}")
         await _update_redis_status(report_id, {
             "status": "failed",
-            "error": str(e) or repr(e)
+            "error": "No se pudo generar el reporte. Inténtalo de nuevo."
         })
 
 async def _update_redis_status(report_id: str, updates: Dict[str, Any]):

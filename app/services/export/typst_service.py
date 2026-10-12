@@ -6,7 +6,6 @@ import asyncio
 import logging
 import shutil
 import subprocess
-import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -27,9 +26,7 @@ class TypstPDFService:
         Path(self.pdf_output_dir).mkdir(parents=True, exist_ok=True)
 
     async def generate_pdf(self, report_id: str, report_json: Dict[str, Any]) -> str:
-        if sys.platform == "win32":
-            return await asyncio.to_thread(self._generate_pdf_sync, report_id, report_json)
-        return self._generate_pdf_sync(report_id, report_json)
+        return await asyncio.to_thread(self._generate_pdf_sync, report_id, report_json)
 
     def _generate_pdf_sync(self, report_id: str, report_json: Dict[str, Any]) -> str:
         assets = self.assets.generate_assets(report_id, report_json, self.pdf_output_dir)

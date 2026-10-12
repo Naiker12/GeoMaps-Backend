@@ -8,12 +8,17 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
+
+
+class FileTooLargeError(ValueError):
+    """El contenido supera el límite permitido para una carga."""
 
 
 @dataclass(frozen=True)
@@ -39,12 +44,6 @@ BUCKET_MAP = {
     "models": "Imagen3d",
     "model": "Imagen3d",
     "imagen3d": "Imagen3d",
-    "projects": "project",
-    "project": "project",
-    "projects/images": "Imagen",
-    "projects/models": "Imagen3d",
-    "projects/shapefiles": "project",
-    "shapefile": "project",
     "resources": "resources",
     "downloads": "Download",
     "download": "Download",
@@ -80,10 +79,10 @@ class StorageService:
         bucket: str,
         path_prefix: str | None = None,
     ) -> StoredFileInfo:
-        content = await file.read()
+        content = await file.read(MAX_FILE_SIZE + 1)
 
         if len(content) > MAX_FILE_SIZE:
-            raise ValueError("Archivo demasiado grande")
+            raise FileTooLargeError("Archivo demasiado grande")
 
         content_type = mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
         safe_filename = self._sanitize_filename(file.filename or "archivo")
@@ -93,7 +92,9 @@ class StorageService:
         extension = self._file_extension(safe_filename)
 
         try:
-            response = self.supabase.storage.from_(bucket).upload(
+            bucket_client = self.supabase.storage.from_(bucket)
+            response = await run_in_threadpool(
+                bucket_client.upload,
                 path=storage_path,
                 file=content,
                 file_options={"content-type": content_type},
@@ -102,7 +103,7 @@ class StorageService:
             if hasattr(response, "error") and response.error:
                 raise RuntimeError(response.error)
 
-            public_url = self.supabase.storage.from_(bucket).get_public_url(storage_path)
+            public_url = await run_in_threadpool(bucket_client.get_public_url, storage_path)
             clean_url = public_url.split("?")[0]
 
             logger.info("Archivo subido correctamente - bucket: '%s', path: '%s'", bucket, storage_path)
@@ -129,7 +130,9 @@ class StorageService:
     async def create_signed_url(self, bucket: str, file_path: str, expires_in: int = 3600) -> str:
         """Genera una URL temporal para buckets privados de Supabase Storage."""
         try:
-            response = self.supabase.storage.from_(bucket).create_signed_url(file_path, expires_in)
+            response = await run_in_threadpool(
+                self.supabase.storage.from_(bucket).create_signed_url, file_path, expires_in
+            )
             signed_url = response.get("signedURL") or response.get("signedUrl")
 
             if not signed_url:
@@ -183,7 +186,9 @@ class StorageService:
     async def delete_file_by_path(self, bucket: str, file_path: str) -> bool:
         try:
             logger.info("Eliminando archivo - bucket: '%s', path: '%s'", bucket, file_path)
-            response = self.supabase.storage.from_(bucket).remove([file_path])
+            response = await run_in_threadpool(
+                self.supabase.storage.from_(bucket).remove, [file_path]
+            )
 
             if not response:
                 logger.warning("Supabase no confirmo la eliminacion de: %s", file_path)
@@ -199,7 +204,9 @@ class StorageService:
     async def download_file_by_path(self, bucket: str, file_path: str) -> bytes:
         try:
             logger.info("Descargando archivo - bucket: '%s', path: '%s'", bucket, file_path)
-            data = self.supabase.storage.from_(bucket).download(file_path)
+            data = await run_in_threadpool(
+                self.supabase.storage.from_(bucket).download, file_path
+            )
             if not isinstance(data, bytes):
                 raise RuntimeError("Supabase no retorno bytes para el archivo")
             return data

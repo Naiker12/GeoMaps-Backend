@@ -25,11 +25,13 @@ class DownloadService:
         show_in_public: bool | None = None,
         skip: int = 0,
         limit: int = 100,
+        *, is_published: bool | None = None,
     ) -> Sequence[DownloadResource]:
         return await self.repository.get_all(
             show_in_public=show_in_public,
             skip=skip,
             limit=limit,
+            is_published=is_published,
         )
 
     async def update_resource_metadata(

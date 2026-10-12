@@ -2,14 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 import json
+import logging
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional
 from app.db.models.user import User
 from app.schemas.download import DownloadResourceResponse, DownloadResourceCreate, DownloadResourceUpdate
 from app.services.downloads import DownloadService, DownloadStorageService
+from app.services.storage import FileTooLargeError
+from app.core.security.ownership import ensure_resource_owner
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"zip", "geojson", "json", "pdf", "shp", "csv", "xml"}
 
@@ -53,6 +57,10 @@ async def upload_resource_file(
     
     if not resource:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
+    try:
+        ensure_resource_owner(current_user, resource.created_by)
+    except PermissionError as exc:
+        raise HTTPException(403, detail=str(exc)) from exc
         
     if resource.layer_id:
         raise HTTPException(
@@ -60,18 +68,19 @@ async def upload_resource_file(
             detail="Este recurso está vinculado a una capa cartográfica. No requiere subida manual."
         )
 
-    ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
          raise HTTPException(status_code=400, detail=f"Extensión .{ext} no permitida")
 
-    # 1. Análisis de metadatos (tipo geometría, conteo)
-    metadata = await DownloadStorageService.analyze_file(file)
-    
-    # 2. Reinicio crítico del cursor para evitar subida vacía (0 bytes)
-    await file.seek(0)
-    
-    # 3. Subida física al bucket Download
-    storage_info = await DownloadStorageService.upload_resource_file(resource_id, file)
+    try:
+        metadata = await DownloadStorageService.analyze_file(file)
+        storage_info = await DownloadStorageService.upload_resource_file(resource_id, file)
+    except FileTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
     
     # 4. Actualización de metadatos técnicos en base de datos
     updated = await download_service.update_resource_metadata(resource_id, {
@@ -101,7 +110,7 @@ async def list_public_downloads(
 ):
     """Lista recursos de descarga agrupados por categoría para el portal público."""
     download_service = DownloadService(db)
-    downloads = await download_service.get_downloads(show_in_public=True)
+    downloads = await download_service.get_downloads(show_in_public=True, is_published=True)
     
     grouped = {}
     for item in downloads:
@@ -132,17 +141,25 @@ async def delete_download(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Elimina el recurso físico de Supabase y luego el registro en DB."""
+    """Confirma la eliminación en DB antes de retirar el archivo de Supabase."""
     download_service = DownloadService(db)
     resource = await download_service.repository.get(download_id)
     if not resource:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
+    try:
+        ensure_resource_owner(current_user, resource.created_by)
+    except PermissionError as exc:
+        raise HTTPException(403, detail=str(exc)) from exc
 
-    if resource.file_path:
-        await DownloadStorageService.delete_resource_files(download_id, resource.file_path)
-
+    file_path = resource.file_path
     success = await download_service.delete_download(download_id)
     if not success:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
+    if file_path:
+        try:
+            if not await DownloadStorageService.delete_resource_files(download_id, file_path):
+                logger.warning("No se pudo retirar el archivo del recurso %s; requiere limpieza posterior", download_id)
+        except Exception:
+            logger.exception("Falló la limpieza del archivo del recurso %s", download_id)
         
     return None
