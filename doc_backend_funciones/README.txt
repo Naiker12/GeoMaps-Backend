@@ -27,7 +27,6 @@ Funciones incluidas:
 - health
 - ia
 - ogc
-- proyectos
 - reportes
 - soporte
 - usuarios

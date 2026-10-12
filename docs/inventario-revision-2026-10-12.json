@@ -1,0 +1,198 @@
+{
+  "date": "2026-10-12",
+  "python_files_reviewed_by_ast": 156,
+  "largest_modules": [
+    {
+      "file": "app/services/cartografia/generator.py",
+      "lines": 845,
+      "broad_exception_handlers": 2
+    },
+    {
+      "file": "app/services/ia/agent_service.py",
+      "lines": 766,
+      "broad_exception_handlers": 6
+    },
+    {
+      "file": "app/services/report/report_engine.py",
+      "lines": 446,
+      "broad_exception_handlers": 3
+    },
+    {
+      "file": "app/api/v1/admin/ia_monitoring.py",
+      "lines": 352,
+      "broad_exception_handlers": 5
+    },
+    {
+      "file": "app/services/ia/tools/entity_search.py",
+      "lines": 330,
+      "broad_exception_handlers": 4
+    },
+    {
+      "file": "app/services/export/typst_service.py",
+      "lines": 328,
+      "broad_exception_handlers": 1
+    },
+    {
+      "file": "app/services/ia/tools/layer_stats.py",
+      "lines": 328,
+      "broad_exception_handlers": 2
+    },
+    {
+      "file": "app/services/report/data_builder.py",
+      "lines": 323,
+      "broad_exception_handlers": 0
+    },
+    {
+      "file": "app/services/spatial/base_spatial.py",
+      "lines": 293,
+      "broad_exception_handlers": 5
+    },
+    {
+      "file": "app/services/ia/history_service.py",
+      "lines": 278,
+      "broad_exception_handlers": 10
+    },
+    {
+      "file": "app/infrastructure/ia_llm_client.py",
+      "lines": 270,
+      "broad_exception_handlers": 3
+    },
+    {
+      "file": "app/repositories/api_key/stats_repository.py",
+      "lines": 265,
+      "broad_exception_handlers": 0
+    }
+  ],
+  "broad_exception_handler_count": 69,
+  "async_candidates": [
+    {
+      "file": "app/api/v1/downloads.py",
+      "function": "create_download",
+      "line": 18,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/api/v1/endpoints/report_router.py",
+      "function": "_get_owned_report",
+      "line": 137,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/api/v1/endpoints/report_router.py",
+      "function": "_update_redis_status",
+      "line": 208,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/api/v1/layers.py",
+      "function": "update_layer",
+      "line": 119,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/repositories/layer_repository.py",
+      "function": "get_features_as_geojson",
+      "line": 112,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/repositories/layer_repository.py",
+      "function": "get_feature_by_id",
+      "line": 146,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/cartografia/generator.py",
+      "function": "_render_map",
+      "line": 53,
+      "candidate_calls": [
+        "fig.savefig"
+      ]
+    },
+    {
+      "file": "app/services/ia/agent_service.py",
+      "function": "_find_barrio_feature",
+      "line": 197,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/agent_service.py",
+      "function": "chat",
+      "line": 326,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/agent_service.py",
+      "function": "chat_stream",
+      "line": 582,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/history_service.py",
+      "function": "get_messages",
+      "line": 35,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/intent_classifier.py",
+      "function": "classify_with_llm",
+      "line": 96,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/tools/entity_search.py",
+      "function": "buscar_y_mostrar_entidades",
+      "line": 185,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/tools/entity_search.py",
+      "function": "consultar_datos_tabla",
+      "line": 250,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/ia/tools/route_tools.py",
+      "function": "mostrar_ruta_animada",
+      "line": 11,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    },
+    {
+      "file": "app/services/report/report_engine.py",
+      "function": "_find_zone_in_db",
+      "line": 226,
+      "candidate_calls": [
+        "json.loads"
+      ]
+    }
+  ],
+  "limits": "Inventario estático: candidatos para revisión manual, no vulnerabilidades confirmadas ni validación de ejecución."
+}

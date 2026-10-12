@@ -10,7 +10,6 @@ Origen revisado:
 
 Rutas base registradas en app/main.py:
 - /api/v1
-- /api/v1/projects
 - /api/v1/layers
 - /api/v1/resources
 - /api/v1/search
@@ -25,7 +24,6 @@ Rutas base registradas en app/main.py:
 Funciones documentadas:
 1. auth: login, registro, perfil, Supabase, sesiones y logout.
 2. usuarios: CRUD y perfil de usuarios. Revisar si todas las rutas estan registradas en main.py antes de exponer.
-3. proyectos: proyectos, assets, modelos 3D, imagenes, shapefiles y lotes.
 4. capas: upload GIS, categorias, GeoJSON, campos, stats y eliminacion.
 5. cartografia: generacion de PDF, PNG y GeoJSON desde capas GIS.
 6. descargas: recursos descargables, upload manual, listado admin y public.
@@ -40,7 +38,7 @@ Funciones documentadas:
 
 Pendientes recomendados para segunda pasada:
 - Revisar permisos reales por cada ruta admin.
-- Verificar ownership en proyectos, capas, reportes y descargas.
+- Verificar ownership en capas, reportes y descargas.
 - Revisar limites de tamano para uploads y exportaciones.
 - Crear checklist de pruebas automatizadas por funcion.
 - Crear documentacion equivalente del frontend conectada a cada funcion.
