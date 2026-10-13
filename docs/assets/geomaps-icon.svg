@@ -1,0 +1,6 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>GeoMaps</title>
+  <rect width="64" height="64" rx="16" fill="#19251f"/>
+  <path d="M48 22 32 13 16 22v20l16 9 16-9V33H33" stroke="#a3d94b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="48" cy="22" r="3" fill="#e1f3bd"/>
+</svg>
