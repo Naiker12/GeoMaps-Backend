@@ -15,7 +15,7 @@ ml_models = {}
 # Importación de Rutas Seguras
 from app.api.v1 import (
     auth_routes, layer_routes, 
-    download_routes, search_routes, api_keys, ogc_routes, cartografia_routes, support as support_routes
+    download_routes, search_routes, ogc_routes, cartografia_routes, support as support_routes
 )
 from app.api.v1.admin import router as admin_router
 
@@ -96,9 +96,7 @@ app.add_middleware(
 
 
 # Registro compartido de trazas y finalización de cuotas.
-from app.api.middleware import APIKeyUsageMiddleware
 
-app.add_middleware(APIKeyUsageMiddleware)
 
 
 setup_exception_handlers(app)
@@ -112,7 +110,6 @@ app.include_router(cartografia_routes.router, prefix=f"{settings.API_V1_STR}/car
 app.include_router(support_routes.router, prefix=f"{settings.API_V1_STR}/support", tags=["Support"])
 app.include_router(ogc_routes.router, prefix=f"{settings.API_V1_STR}/ogc", tags=["OGC"])
 app.include_router(admin_router, prefix=settings.API_V1_STR)
-app.include_router(api_keys.router, prefix=f"{settings.API_V1_STR}/keys", tags=["API Keys"])
 
 # Rutas de IA
 from app.api.v1.endpoints import ia_router
