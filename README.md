@@ -12,6 +12,8 @@ Este README documenta la arquitectura real del backend, sus servicios, librerias
 
 La aplicación declara la versión **2.0.0**. El icono se reutiliza del frontend oficial y se conserva dentro del repositorio para evitar dependencias externas al mostrarlo en GitHub. Este documento diferencia funcionalidades activas, código histórico y validaciones pendientes.
 
+**Documentación actualizada: 15 de octubre de 2026.** Última integración validada: 193 pruebas del backend aprobadas.
+
 ## Tabla De Contenido
 
 - [Funciones principales](#funciones-principales)
@@ -31,11 +33,13 @@ La aplicación declara la versión **2.0.0**. El icono se reutiliza del frontend
 - [Relacion con el frontend](#relacion-con-el-frontend)
 - [IA geográfica y resultados](#ia-geográfica-y-resultados)
 - [Cuotas y concurrencia](#cuotas-y-concurrencia)
+- [Archivos, transacciones y reportes](#archivos-transacciones-y-reportes)
 - [Preparación del despliegue](#preparación-del-despliegue)
 - [Pruebas y alcance de validación](#pruebas-y-alcance-de-validación)
 - [Solución de problemas](#solución-de-problemas)
 - [Ramas de trabajo](#ramas-de-trabajo)
 - [Documentación complementaria](#documentación-complementaria)
+- [Inventario de rutas](#inventario-de-rutas)
 
 ## Funciones Principales
 
@@ -81,6 +85,7 @@ La aplicación declara la versión **2.0.0**. El icono se reutiliza del frontend
 | google-genai | `>=1.0.0` | Cliente oficial para Google Gemini. |
 | Matplotlib | `>=3.8.0` | Gráficas utilizadas en reportes. |
 | Typst | `0.14.8` | Render de documentos PDF. |
+| cryptography | `>=42.0.0` | Cifrado Fernet de credenciales de proveedores IA. |
 
 Las versiones describen `requirements.txt`; no indican que sean las últimas publicadas. El archivo exige wheels binarios con `--only-binary=:all:`. La configuración de despliegue fija Python 3.12.8.
 
@@ -100,7 +105,8 @@ El backend usa una arquitectura modular por capas:
 | Servicios | `app/services` | Reglas de negocio: capas, descargas, busqueda, IA, analitica. |
 | Repositorios | `app/repositories` | Acceso a datos y consultas reutilizables. |
 | Infraestructura | `app/infrastructure` | Clientes externos como Gemini y repositorios concretos. |
-| Dominio | `app/domain` | Modelos y servicios de dominio para permisos/roles. |
+| Compatibilidad | `app/domain` | Imports históricos que reutilizan modelos canónicos. |
+| Mantenimiento | `app/maintenance` y `scripts` | Respaldo verificado y retiro explícito de proyectos. |
 | Migraciones | `alembic` | Versionado de cambios de base de datos. |
 
 ## Estructura De Carpetas
@@ -124,6 +130,8 @@ app/
   services/               Logica de negocio.
   utils/                  Utilidades compartidas.
 alembic/                  Migraciones.
+scripts/                  Operaciones controladas de mantenimiento.
+tests/                    Pruebas de regresión e integración simulada.
 assets/                   Icono oficial de la aplicación.
 ```
 
@@ -200,7 +208,8 @@ BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 | `SUPABASE_JWT_SECRET` | Si | Secreto usado para validar tokens Supabase. |
 | `SECRET_KEY` | Para sesiones locales | Configurar explícitamente un secreto local independiente; no confundirlo con SUPABASE_JWT_SECRET. |
 | `JWT_SECRET` | Legacy | Campo de compatibilidad; comprobar Settings antes de depender de él como sustituto de SECRET_KEY. |
-| `GOOGLE_API` | Si usa IA | API key de Google Gemini. |
+| `GOOGLE_API` | Para Gemini sin conexión guardada | Credencial de respaldo del adaptador Google. |
+| `AI_PROVIDER_ENCRYPTION_KEY` | Para guardar API keys de proveedores | Clave Fernet del servidor; mantenerla estable para descifrar credenciales existentes. |
 | `FRONTEND_URL` | Recomendada | URL del frontend para CORS y callbacks. |
 | `BACKEND_CORS_ORIGINS` | Recomendada | Lista de origenes permitidos separados por coma o JSON list. |
 | `REDIS_URL` | Según función | Obligatoria para reportes; default redis://localhost:6379. |
@@ -222,7 +231,7 @@ En Supabase Dashboard -> Project Settings -> Database -> Connection string, copi
 - Session pooler para este backend persistente: `postgres://postgres.<project-ref>:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres`
 - Transaction pooler si prefieres puerto `6543`: `postgres://postgres.<project-ref>:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres`
 
-Pega esa URL como `DATABASE_URL` en Render. El backend desactiva prepared statements automaticamente cuando detecta el transaction pooler `:6543`.
+Pega esa URL como `DATABASE_URL` en Render. El backend detecta ambos puertos del pooler Supabase (`5432` y `6543`), usa `NullPool`, desactiva prepared statements y configura un tiempo de conexión de diez segundos. Las conexiones fuera del pooler usan un pool de cinco conexiones y hasta diez adicionales.
 
 ## Instalacion Y Ejecucion
 
@@ -276,10 +285,14 @@ Comandos comunes:
 alembic current
 alembic heads
 alembic history
-# Tras revisar respaldo, revisión destino y datos:
-alembic upgrade head
+# Configuración IA, tras revisar la revisión actual y sus dependencias:
+alembic upgrade j0k1l2m3n4o5
 alembic revision --autogenerate -m "descripcion_del_cambio"
 ```
+
+La revisión actual de código es `k1l2m3n4o5p6`, que retira las diez tablas de proyectos. **`alembic upgrade head` sin un respaldo verificado se detiene**: no es el comando de instalación genérico para un entorno que deba conservar proyectos. El arranque de la aplicación no aplica migraciones.
+
+El proceso autorizado de retiro se realiza con `scripts/retire_projects.py --apply`: exige que la base esté en `j0k1l2m3n4o5`, respalda tablas y objetos propios, verifica la restauración y aplica la migración explícita. Los respaldos quedan en `.git/private-backups`; conservar una copia privada fuera del checkout antes de eliminarlo o reemplazarlo. El script sin `--apply` consulta el inventario sin retirar datos. No ejecutar estas operaciones sobre producción sin revisar su alcance y respaldo.
 
 Consideraciones:
 
@@ -319,7 +332,7 @@ La capa IA se concentra en `app/services/ia` e `app/infrastructure/ia_llm_client
 Responsabilidades:
 
 - Construir prompts con contexto de GeoMaps.
-- Enviar mensajes a Google Gemini usando `google-genai`.
+- Enviar mensajes a Google Gemini y proveedores HTTP compatibles, según la conexión y el modelo activo.
 - Soportar respuesta normal y streaming.
 - Persistir conversaciones en DB y acelerar historial/resumen mediante Redis.
 - Exponer modelos, sugerencias, conversaciones y uso.
@@ -418,13 +431,49 @@ Ejemplo de cuerpo para POST /api/v1/ia/chat, con el nombre de una capa disponibl
 | suggestions | Seguimientos sugeridos |
 | tokens_input, tokens_output y cost | Datos de consumo |
 
-En streaming, el evento done incluye los resultados estructurados. El flujo del agente comprueba propiedad de la conversación antes de cargar historial y resumen.
+En streaming, cada bloque SSE contiene JSON en `data:`. El frontend interpreta su campo `type`:
+
+| Tipo | Contenido |
+| --- | --- |
+| `start` | Identificadores de solicitud/conversación y modelo utilizado. |
+| `text` | Fragmento incremental de la respuesta. |
+| `tool_status` | Herramienta iniciada e identificador de llamada. |
+| `tool_result` | Resultado operativo, evidencia y fuentes recuperadas. |
+| `done` | Texto final, acciones del mapa, análisis, sugerencias y consumo. |
+| `error` | Fallo acotado; no debe presentarse como una respuesta completa. |
+
+El flujo comprueba la propiedad de la conversación antes de cargar historial y resumen. La memoria compacta conserva solicitudes, contexto y resultados de herramientas; no representa razonamiento privado del modelo ni entrenamiento. Las herramientas usan llamadas estructuradas del proveedor; texto que imita ese protocolo se rechaza.
+
+Las acciones propuestas no acreditan que el mapa las haya aplicado. El cliente confirma el resultado mediante `POST /api/v1/ia/conversations/{conversation_id}/map-actions/ack`.
 
 Los conteos incluyen geometrías válidas, no nulas, SRID 4326 y dentro de rango. La suma de áreas se calcula en m² sobre geography, pero suma polígonos completos: no recorta a la zona ni elimina solapamientos. **No es porcentaje de cobertura**. Los filtros de atributos del contexto no se aplican automáticamente en esta herramienta; no presentar la métrica como un subconjunto filtrado por atributos.
 
 ### Configuración de proveedores
 
 `app/services/ia/provider_connections.py` permite descubrir modelos y guardar conexiones cifradas. Configurar `AI_PROVIDER_ENCRYPTION_KEY` (Fernet) en el servidor y aplicar la revisión `j0k1l2m3n4o5` antes de usar esta configuración. Las claves de proveedores no son llaves de acceso a la API de GeoMaps. El modelo predeterminado debe estar activo y es único. Gemini conserva el acceso mediante `GOOGLE_API`.
+
+Flujo de administración:
+
+1. Consultar `GET /api/v1/admin/ia/providers` y seleccionar el proveedor.
+2. Completar su URL y API key cuando corresponda. En proveedores locales, `localhost` se refiere al servidor del backend.
+3. Consultar `POST /api/v1/admin/ia/providers/discover` para cargar los modelos disponibles en esa conexión.
+4. Guardar el modelo elegido mediante `POST /api/v1/admin/ia/models/connect`.
+5. Marcar el modelo activo predeterminado mediante `POST /api/v1/admin/ia/models/{model_uuid}/default`.
+
+| Proveedor | ID | Protocolo | API key requerida |
+| --- | --- | --- | --- |
+| Google Gemini | `google` | `google` | Sí |
+| OpenAI | `openai` | `openai` | Sí |
+| Anthropic | `anthropic` | `anthropic` | Sí |
+| Mistral AI | `mistral` | `openai` | Sí |
+| Groq | `groq` | `openai` | Sí |
+| OpenRouter | `openrouter` | `openai` | Sí |
+| Ollama (local) | `ollama` | `openai` | No |
+| LM Studio (local) | `lmstudio` | `openai` | No |
+| Compatible con OpenAI | `custom` | `openai` | No |
+
+La disponibilidad y las capacidades dependen del proveedor y del modelo. Una API compatible no garantiza soporte de herramientas o visión. La clave Fernet puede generarse con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`; guardar el resultado como secreto del backend, nunca en Git ni en el frontend.
+
 
 ## Cuotas y concurrencia
 
@@ -447,7 +496,7 @@ Los buckets y policies deben prepararse en Supabase. Una URL almacenada no acred
 
 El reemplazo de capa carga el archivo nuevo antes de retirar features, bloquea la fila y confirma metadatos/geometrías juntos. Ante fallo DB se revierte y procura limpiar el archivo nuevo. El archivo anterior se limpia después del commit. DB y Storage no tienen transacción distribuida: una limpieza fallida puede dejar archivos huérfanos.
 
-POST /api/v1/reports/generate inicia un trabajo de fondo con su propia sesión DB. Estado y descarga requieren propietario autenticado. El estado tiene TTL Redis de una hora; un estado ausente, vencido o ajeno devuelve 404. El render PDF se ejecuta fuera del event loop.
+POST /api/v1/reports/generate inicia un trabajo de fondo con su propia sesión DB. Estado y descarga requieren propietario autenticado. El estado tiene TTL Redis de una hora; un estado ausente, vencido o ajeno devuelve 404. El render PDF se ejecuta fuera del event loop. El renderizador Typst escapa comillas, saltos de línea y caracteres de marcado; una prueba de regresión compila un documento real con estos casos.
 
 El trabajo depende del worker y no constituye una cola durable. Revisar reinicios, persistencia del filesystem y limpieza de PDFs antes de asumir que un reporte seguirá disponible. Un fallo Redis al inicializar el reporte devuelve 503.
 
@@ -465,7 +514,9 @@ El trabajo depende del worker y no constituye una cola durable. Revisar reinicio
 | Revisión reciente | Cambio | Condición |
 | --- | --- | --- |
 | h8i9j0k1l2m3 | layer_features.last_viewed_at | Depende de g7h8i9j0k1l2 |
-| i9j0k1l2m3n4 | quota_pending y unicidad llave/fecha de estadísticas | Depende de h8i9j0k1l2m3; se detiene con duplicados |
+| i9j0k1l2m3n4 | Revisión histórica: quota_pending y unicidad llave/fecha | Depende de h8i9j0k1l2m3; se detiene con duplicados |
+| j0k1l2m3n4o5 | Conexiones IA cifradas y modelo predeterminado único | Depende de i9j0k1l2m3n4; requiere clave Fernet para guardar credenciales |
+| k1l2m3n4o5p6 | Retiro explícito de tablas de proyectos | Depende de j0k1l2m3n4o5; exige respaldo verificado |
 
 La revisión de estadísticas no borra ni fusiona duplicados automáticamente. Revisar las operaciones directamente en alembic/versions y comprobar la revisión destino antes de aplicar cambios.
 
@@ -485,18 +536,20 @@ python -m unittest discover -s tests -p test_ai_geography.py -v
 python -m unittest discover -s tests -p test_layer_transactions.py -v
 ```
 
-La revisión del 12 de octubre de 2026 aprobó 151 pruebas, OpenAPI y /health 200 con Python 3.13.12 local. Es una instantánea de validación, no un badge automático de CI. Los cambios de desarrollo posteriores requieren sus propias comprobaciones.
+La integración del 14 de octubre de 2026 aprobó **193 pruebas** con el entorno local Python 3.13.12, incluida compilación PDF real con Typst. Es una instantánea local, no un badge automático de CI ni una validación contra servicios de producción.
 
 | Área | Evidencia | Límite |
 | --- | --- | --- |
 | JWT y permisos | Tokens firmados de prueba, dependencias FastAPI | Sin Supabase real |
-| Cuotas/RPM | Redis aislado, mocks y upsert SQLite concurrente | Sin bloqueo real PostgreSQL |
+| Límites IA | Presupuestos y coherencia de historial/herramientas | Sin prueba de carga de producción |
 | Capas/archivos | Propiedad, rollback y compensación | Storage y DB simulados |
 | GIS | Parámetros SQL, bbox, polígonos y pyproj real | Sin métricas ejecutadas en PostGIS |
-| IA | Alcance y metadatos de respuesta | Sin evaluación de modelo real |
-| Reportes/OGC | Propiedad, sesiones y límites de streaming | Sin PDF real ni servidor OGC externo |
+| IA | Proveedores, modelo predeterminado, streaming, memoria, catálogo y protocolo | Sin evaluación de modelos externos reales |
+| Reportes | Propiedad, sesiones y compilación Typst con caracteres especiales | Sin generación autenticada con datos de producción |
+| OGC | Límites de streaming y errores HTTP | Sin servidor OGC externo real |
+| Migraciones/proyectos | Filtro de tablas y verificación del respaldo | No aplica cambios en Supabase de producción |
 
-El entorno ficticio de tests no escribe .env ni aplica migraciones. Las integraciones Redis se omiten explícitamente si no se encuentra redis-server. Consultar [tests/README.md](tests/README.md) para el detalle.
+El entorno ficticio de tests no escribe .env ni aplica migraciones. Consultar [tests/README.md](tests/README.md) para el detalle.
 
 ## Solución de problemas
 
@@ -507,9 +560,9 @@ El entorno ficticio de tests no escribe .env ni aplica migraciones. Las integrac
 | 401 con sesión | Expiración, issuer/audience, revocación y usuario activo |
 | 403 de administración | Rol local; cuenta Supabase no equivale a ADMIN |
 | Columna last_viewed_at/quota_pending ausente | Revisión Alembic y migraciones |
-| Migración detenida | Duplicados llave/fecha; revisar datos |
-| 503 de cuotas | Conectividad Redis y configuración RPM |
-| 429 | Cuota compartida y ventana RPM; respetar Retry-After |
+| Migración detenida | Revisar duplicados históricos o el respaldo obligatorio de proyectos según la revisión |
+| 503 al guardar conexión IA | AI_PROVIDER_ENCRYPTION_KEY válida y estable en el servidor |
+| 429 de IA | Cuota de consultas y ventana configurada; respetar Retry-After cuando se incluya |
 | Cookie o CORS | Origen, credentials, hostname y HTTPS |
 | Upload rechazado | Tamaño, bucket, clave backend y policies |
 | Chat sin modelo | Modelos activos y configuración del proveedor |
@@ -518,7 +571,7 @@ El entorno ficticio de tests no escribe .env ni aplica migraciones. Las integrac
 
 ## Ramas de trabajo
 
-Las ramas usan feature/, sin prefijo codex. Seguridad, Mapa, IA, Descargas, Proyectos y Documentacion organizaron los cambios integrados. Se prepararon ramas adicionales para Autenticacion, Usuarios, Capas, Busqueda, ApiKeys, Cartografia, OGC, Reportes, Almacenamiento, Analitica, Soporte, Notificaciones, Portal y Administracion.
+La integración del 14 de octubre publicó y fusionó en `main` las ramas `feature/Seguridad`, `feature/Almacenamiento`, `feature/IA`, `feature/Proyectos`, `feature/Cartografia`, `feature/Reportes` y `feature/Documentacion`. El historial conserva un commit por lote y un commit de merge por rama. Existen otras ramas históricas que no necesariamente contienen cambios nuevos.
 
 Una rama preparada sin commits propios no representa una funcionalidad nueva. Sincronizar con main antes de desarrollar; validar contratos, permisos, migraciones y pruebas relevantes antes de fusionar. No añadir secretos ni archivos temporales a los commits.
 
@@ -526,13 +579,14 @@ Una rama preparada sin commits propios no representa una funcionalidad nueva. Si
 
 | Documento | Contenido |
 | --- | --- |
+| [Integración del backend](docs/integracion-backend-2026-10-14.md) | Lotes integrados, verificaciones y operación |
 | [Pruebas](tests/README.md) | Ejecución y alcance por módulo |
 | [Configuración](app/core/config.py) | Opciones reconocidas |
 | [Dependencias](requirements.txt) | Versiones declaradas |
 
 ## Inventario de rutas
 
-La siguiente instantánea se genera del OpenAPI local. Consultar Swagger para cuerpos y respuestas. Una ruta presente no implica acceso público; sus dependencias determinan la autenticación y los permisos.
+Instantánea del OpenAPI local del 14 de octubre de 2026, generada sin arrancar el servidor ni conectar con servicios externos. Consultar Swagger para cuerpos y respuestas; las dependencias de cada ruta determinan sus permisos.
 
 | Método | Ruta | Operación |
 | --- | --- | --- |
@@ -545,20 +599,24 @@ La siguiente instantánea se genera del OpenAPI local. Consultar Swagger para cu
 | `GET` | `/api/v1/admin/ia/audit-logs/{log_id}/details` | Get Audit Log Details |
 | `GET` | `/api/v1/admin/ia/models` | List All Models |
 | `POST` | `/api/v1/admin/ia/models` | Create Model Config |
-| `PATCH` | `/api/v1/admin/ia/models/{model_uuid}` | Update Model Config |
+| `POST` | `/api/v1/admin/ia/models/connect` | Connect Provider Model |
 | `DELETE` | `/api/v1/admin/ia/models/{model_uuid}` | Delete Model Config |
+| `PATCH` | `/api/v1/admin/ia/models/{model_uuid}` | Update Model Config |
+| `POST` | `/api/v1/admin/ia/models/{model_uuid}/default` | Set Default Model |
+| `GET` | `/api/v1/admin/ia/providers` | List Providers |
+| `POST` | `/api/v1/admin/ia/providers/discover` | Discover Provider Models |
 | `GET` | `/api/v1/admin/ia/stats` | Get Ia Stats |
 | `GET` | `/api/v1/admin/support/` | List Support Requests |
+| `DELETE` | `/api/v1/admin/support/{request_id}` | Delete Support Request |
 | `GET` | `/api/v1/admin/support/{request_id}` | Get Support Request |
 | `PATCH` | `/api/v1/admin/support/{request_id}` | Update Support Request |
-| `DELETE` | `/api/v1/admin/support/{request_id}` | Delete Support Request |
 | `POST` | `/api/v1/admin/support/{request_id}/reply` | Reply Support Request |
 | `GET` | `/api/v1/admin/users/` | List Admin Users |
 | `POST` | `/api/v1/admin/users/` | Create User |
 | `GET` | `/api/v1/admin/users/me` | Get My Profile |
 | `PATCH` | `/api/v1/admin/users/me` | Update My Profile |
-| `PATCH` | `/api/v1/admin/users/{user_id}` | Update User |
 | `DELETE` | `/api/v1/admin/users/{user_id}` | Delete User |
+| `PATCH` | `/api/v1/admin/users/{user_id}` | Update User |
 | `POST` | `/api/v1/auth/login/supabase` | Login Supabase |
 | `POST` | `/api/v1/auth/logout` | Logout |
 | `GET` | `/api/v1/auth/me` | Get My Profile |
@@ -569,22 +627,23 @@ La siguiente instantánea se genera del OpenAPI local. Consultar Swagger para cu
 | `POST` | `/api/v1/cartografia/generate` | Generate Cartografia |
 | `POST` | `/api/v1/ia/chat` | Chat With Ia |
 | `POST` | `/api/v1/ia/chat/stream` | Chat With Ia Stream |
-| `GET` | `/api/v1/ia/conversations` | Get Chat History |
 | `DELETE` | `/api/v1/ia/conversations` | Delete Conversations |
+| `GET` | `/api/v1/ia/conversations` | Get Chat History |
 | `DELETE` | `/api/v1/ia/conversations/{conversation_id}` | Delete Conversation |
+| `POST` | `/api/v1/ia/conversations/{conversation_id}/map-actions/ack` | Acknowledge Map Actions |
 | `GET` | `/api/v1/ia/conversations/{conversation_id}/messages` | Get Conversation Messages |
 | `GET` | `/api/v1/ia/models` | Get Available Models |
 | `GET` | `/api/v1/ia/suggestions` | Get Ia Suggestions |
 | `POST` | `/api/v1/ia/transcribe` | Transcribe Audio |
 | `GET` | `/api/v1/ia/usage` | Get Ia Usage |
-| `POST` | `/api/v1/layers/` | Upload Layer |
 | `GET` | `/api/v1/layers/` | List Layers |
+| `POST` | `/api/v1/layers/` | Upload Layer |
 | `GET` | `/api/v1/layers/categories` | Get Categories |
 | `GET` | `/api/v1/layers/categories/tree` | Get Categories Tree |
 | `GET` | `/api/v1/layers/features/properties` | Get Layers Features Properties |
 | `GET` | `/api/v1/layers/features/{feature_id}` | Get Feature Detail |
-| `PATCH` | `/api/v1/layers/{layer_id}` | Update Layer |
 | `DELETE` | `/api/v1/layers/{layer_id}` | Delete Layer |
+| `PATCH` | `/api/v1/layers/{layer_id}` | Update Layer |
 | `GET` | `/api/v1/layers/{layer_id}/features` | Get Layer Geojson |
 | `GET` | `/api/v1/layers/{layer_id}/field-stats` | Get Field Stats |
 | `GET` | `/api/v1/layers/{layer_id}/field-values` | Get Field Values |
