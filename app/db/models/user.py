@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Boolean, DateTime, func, Enum, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 
 class UserRole(str, enum.Enum):
@@ -29,11 +29,3 @@ class User(Base):
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    # Relationships
-    api_keys: Mapped[list["APIKey"]] = relationship(
-        "APIKey", 
-        back_populates="user", 
-        cascade="all, delete-orphan",
-        foreign_keys="[APIKey.user_id]"
-    )

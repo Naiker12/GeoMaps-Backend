@@ -121,126 +121,29 @@ class TokenIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("WHERE users.supabase_id =", statement)
         self.assertNotIn(" OR ", statement)
 
-    async def test_disabled_jwt_cannot_fall_back_to_api_key(self):
-        request = make_request({"X-API-Key": "valid-key"})
-        with patch.object(deps, "get_current_user", side_effect=HTTPException(403)), patch.object(
-            deps, "get_user_from_api_key", new_callable=AsyncMock
-        ) as fallback:
-            with self.assertRaises(HTTPException) as caught:
-                await deps.get_current_user_unified(request, make_db(None), token="disabled-user")
-            self.assertEqual(caught.exception.status_code, 403)
-            fallback.assert_not_awaited()
-
-    async def test_invalid_jwt_can_fall_back_to_explicit_api_key(self):
-        user = SimpleNamespace(is_active=True)
-        with patch.object(deps, "get_current_user", side_effect=HTTPException(401)), patch.object(
-            deps, "get_user_from_api_key", new_callable=AsyncMock, return_value=user
-        ) as fallback:
-            result = await deps.get_current_user_unified(
-                make_request({"X-API-Key": "valid-key"}), make_db(None), token="expired"
-            )
-            self.assertIs(result, user)
-            fallback.assert_awaited_once()
 
 
-class APIKeyIdentityTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.now = datetime(2026, 10, 11, tzinfo=timezone.utc)
-        self.user = SimpleNamespace(is_active=True)
-        self.key = SimpleNamespace(
-            id=uuid.uuid4(), user_id=uuid.uuid4(), user=self.user,
-            expires_at=None, last_used=None, rate_limit_rpm=None,
-        )
-        self.db = make_db(self.key)
-        self.clock = patch.object(deps, "get_utc_now", return_value=self.now)
-        self.clock.start()
-        self.addCleanup(self.clock.stop)
-        self.reservation = patch("app.services.api_keys.APIKeyService.reserve_daily_quota", new_callable=AsyncMock, return_value=uuid.uuid4())
-        self.reserve = self.reservation.start()
-        self.addCleanup(self.reservation.stop)
 
-    async def test_expired_keys_are_rejected_before_quota_and_commit(self):
-        for expiration in (self.now - timedelta(seconds=1), self.now):
-            self.key.expires_at = expiration
-            with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock) as quota:
-                with self.assertRaises(HTTPException) as caught:
-                    await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-                self.assertEqual(caught.exception.status_code, 401)
-                quota.assert_not_awaited()
-        self.db.commit.assert_not_awaited()
-
-    async def test_inactive_api_key_owner_is_forbidden(self):
-        self.user.is_active = False
-        with self.assertRaises(HTTPException) as caught:
-            await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-        self.assertEqual(caught.exception.status_code, 403)
-        self.db.commit.assert_not_awaited()
-
-    async def test_valid_keys_use_utc_last_used(self):
-        for expiration in (None, self.now + timedelta(seconds=1)):
-            self.key.expires_at = expiration
-            with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=True):
-                user = await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-            self.assertIs(user, self.user)
-            self.assertEqual(self.key.last_used, self.now)
-
-    async def test_daily_quota_still_rejects_exhausted_key(self):
-        with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=False):
-            with self.assertRaises(HTTPException) as caught:
-                await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-        self.assertEqual(caught.exception.status_code, 429)
-        self.db.commit.assert_not_awaited()
-
-    async def test_rpm_rejection_does_not_update_last_used(self):
-        self.key.rate_limit_rpm = 2
-        with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=True), patch.object(
-            deps, "enforce_api_key_rate_limit", side_effect=HTTPException(429, headers={"Retry-After": "20"})
-        ) as limit:
-            with self.assertRaises(HTTPException) as caught:
-                await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-        limit.assert_awaited_once_with(self.key.id, 2)
-        self.assertEqual(caught.exception.status_code, 429)
-        self.assertIsNone(self.key.last_used)
-        self.db.commit.assert_not_awaited()
-
-    async def test_same_request_does_not_reserve_twice(self):
-        request = make_request({"X-API-Key": "test"})
-        with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=True):
-            self.assertIs(await deps.get_user_from_api_key(request, self.db), self.user)
-            self.assertIs(await deps.get_user_from_api_key(request, self.db), self.user)
-        self.reserve.assert_awaited_once()
-        self.assertEqual(self.db.execute.await_count, 1)
-
-    async def test_quota_exhausted_between_initial_check_and_reservation_is_rejected(self):
-        self.reserve.return_value = None
-        with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=True):
-            with self.assertRaises(HTTPException) as caught:
-                await deps.get_user_from_api_key(make_request({"X-API-Key": "test"}), self.db)
-        self.assertEqual(caught.exception.status_code, 429)
-        self.db.commit.assert_not_awaited()
 
 
 class ProfileRouteTests(unittest.TestCase):
-    def test_profile_resolves_api_key_through_http_dependency_chain(self):
+    def test_retired_api_key_cannot_authenticate_profile(self):
         app = FastAPI()
         app.include_router(auth_router, prefix="/api/v1")
-        user = SimpleNamespace(
-            id=uuid.uuid4(), email="user@example.com", role="USER", is_active=True,
-            created_at=datetime.now(timezone.utc),
-        )
-        key = SimpleNamespace(id=uuid.uuid4(), user_id=user.id, user=user, expires_at=None, last_used=None, rate_limit_rpm=None)
-        db = make_db(key)
+        for suffix, headers in (("", {"X-API-Key": "retired-key"}), ("?api_key=retired-key", {})):
+            response = TestClient(app).get("/api/v1/auth/me" + suffix, headers=headers)
+            self.assertEqual(response.status_code, 401)
 
-        async def override_db():
-            yield db
-
-        app.dependency_overrides[deps.get_db] = override_db
-        with patch("app.services.api_keys.APIKeyService.check_daily_quota", new_callable=AsyncMock, return_value=True), patch(
-            "app.services.api_keys.APIKeyService.reserve_daily_quota", new_callable=AsyncMock, return_value=uuid.uuid4()
-        ):
-            response = TestClient(app).get("/api/v1/auth/me", headers={"X-API-Key": "valid-key"})
+    def test_profile_still_resolves_session_token(self):
+        app = FastAPI()
+        app.include_router(auth_router, prefix="/api/v1")
+        user = SimpleNamespace(id=uuid.uuid4(), email="user@example.com", role="USER", is_active=True, created_at=datetime.now(timezone.utc))
+        with patch.object(deps, "resolve_token_user", new_callable=AsyncMock, return_value=user) as resolve:
+            response = TestClient(app).get("/api/v1/auth/me", headers={"Authorization": "Bearer session-token"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["id"], str(user.id))
+        self.assertEqual(resolve.await_args.args[1], "session-token")
+
 
     def test_profile_changes_cannot_include_administrative_fields(self):
         for field, value in (("role", "SUPER_ADMIN"), ("is_active", True)):

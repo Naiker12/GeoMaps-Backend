@@ -16,10 +16,7 @@ from sqlalchemy.dialects import postgresql
 from starlette.requests import Request
 from app.core import exceptions
 from app.db import base
-from app.db.models.api_key import APIKeyStatus
 from app.db.session import Base
-from app.repositories.api_key.usage_repository import APIKeyUsageRepository
-from app.services.api_keys import service as api_key_service
 
 
 class ModelCompatibilityTests(unittest.TestCase):
@@ -60,52 +57,8 @@ class ErrorResponseTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("access-control-allow-origin", response.headers)
 
 
-class QuotaRepositoryTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.db = AsyncMock()
-        self.db.execute.return_value = Mock(scalar=Mock(return_value=4))
-        self.repository = APIKeyUsageRepository(self.db)
-        self.user_id = uuid.uuid4()
-
-    async def test_usage_window_is_bound_as_interval_and_filters_success(self):
-        self.assertEqual(await self.repository.get_user_usage_count(self.user_id, 7), 4)
-        compiled = self.db.execute.call_args.args[0].compile(dialect=postgresql.dialect())
-        self.assertIn(timedelta(days=7), compiled.params.values())
-        self.assertIn(self.user_id, compiled.params.values())
-        self.assertIn("status_code <", str(compiled))
-        await self.repository.get_user_total_usage_count(self.user_id, 7)
-        compiled = self.db.execute.call_args.args[0].compile(dialect=postgresql.dialect())
-        self.assertNotIn("status_code <", str(compiled))
-
-    async def test_invalid_windows_do_not_query_database(self):
-        for days in (0, -1, True, "1'; DROP TABLE users; --"):
-            with self.assertRaises(ValueError):
-                await self.repository.get_user_usage_count(self.user_id, days)
-        self.db.execute.assert_not_awaited()
-
-    async def test_quota_boundary_matches_reported_status(self):
-        for used in (8, 9, 10, 12):
-            self.db.execute.return_value.scalar.return_value = used
-            status = await self.repository.get_quota_status(self.user_id)
-            self.assertEqual(status["remaining"], max(0, 10 - used))
-            self.assertEqual(status["is_blocked"], used >= 10)
-            self.assertEqual(await self.repository.check_daily_quota(self.user_id), used < 10)
 
 
-class KeyRevocationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_revocation_uses_utc_and_preserves_owner_authorization(self):
-        service = api_key_service.APIKeyService(AsyncMock())
-        owner_id, key_id = uuid.uuid4(), uuid.uuid4()
-        key = SimpleNamespace(id=key_id, user_id=owner_id)
-        service.repository = SimpleNamespace(get=AsyncMock(return_value=key), update=AsyncMock(return_value=key))
-        now = datetime(2026, 10, 11, tzinfo=timezone.utc)
-        with patch.object(api_key_service, "get_utc_now", return_value=now):
-            self.assertIsNone(await service.revoke_api_key(key_id, uuid.uuid4()))
-            service.repository.update.assert_not_awaited()
-            self.assertIs(await service.revoke_api_key(key_id, owner_id), key)
-        self.assertEqual(service.repository.update.call_args.args[1], {
-            "status": APIKeyStatus.REVOKED, "revoked_at": now, "revoked_by": owner_id,
-        })
 
 
 if __name__ == "__main__":

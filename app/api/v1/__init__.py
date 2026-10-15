@@ -5,4 +5,3 @@ from . import search as search_routes
 from . import ogc as ogc_routes
 from . import cartografia as cartografia_routes
 from .admin import analytics as admin_analytics
-from . import api_keys
