@@ -22,6 +22,9 @@ if config.config_file_name is not None:
 # de myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.db.base import Base
+from app.core.config import settings
+# Always migrate the database used by the application, never a stale ini URL.
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 target_metadata = Base.metadata
 
 # otros valores de la configuración, definidos por las necesidades de env.py,
@@ -35,6 +38,10 @@ def include_object(object, name, type_, reflected, compare_to):
     Ignoramos la tabla 'spatial_ref_sys' de PostGIS para evitar que intente borrarla.
     """
     if type_ == "table" and name == "spatial_ref_sys":
+        return False
+    # Several active tables (IA and imported GIS data) are managed by SQL.
+    # Missing ORM metadata is not proof that a remote table is obsolete.
+    if type_ == "table" and reflected and compare_to is None:
         return False
     return True
 
