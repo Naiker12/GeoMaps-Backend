@@ -1,3 +1,6 @@
+import asyncio
+import anyio
+import json
 import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -9,7 +12,7 @@ from app.services.ia.agent_service import AgentService
 from app.services.ia.history_service import HistoryService
 from app.services.ia.usage_service import UsageService
 from app.services.ia.stt_service import stt_service
-from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest
+from app.schemas.ia import ChatRequest, ChatResponse, MessageRead, Conversation, IASuggestion, IAModelConfig, IAUsageResponse, DeleteConversationsRequest, MapActionAcknowledgement
 from app.api.deps import get_current_active_user
 from app.db.models.user import User
 
@@ -57,6 +60,29 @@ async def chat_with_ia(
         error_detail = "Lo siento, ocurrió un error interno al procesar tu solicitud. Por favor intenta de nuevo más tarde."
         raise HTTPException(status_code=500, detail=error_detail)
 
+async def _stream_with_limits(agent, request, user):
+    try:
+        async with asyncio.timeout(160):
+            async for event in agent.chat_stream(request, user):
+                if json.loads(event[6:]).get('type') == 'error':
+                    await agent.record_stream_failure('error')
+                yield event
+    except asyncio.CancelledError:
+        with anyio.CancelScope(shield=True):
+            try: await asyncio.wait_for(agent.record_stream_failure("cancelled"), timeout=5)
+            except Exception: logger.warning("No se pudo guardar la respuesta interrumpida")
+        raise
+    except TimeoutError:
+        try: await agent.record_stream_failure("error")
+        except Exception: logger.warning("No se pudo registrar el tiempo agotado")
+        yield f"data: {json.dumps({'type': 'error', 'content': 'Se alcanzó el límite de tiempo. Reduce el alcance de la consulta.'})}\n\n"
+    except Exception:
+        logger.exception("Falló el flujo de IA")
+        try: await agent.record_stream_failure("error")
+        except Exception: logger.warning("No se pudo registrar el flujo fallido")
+        yield f"data: {json.dumps({'type': 'error', 'content': 'No se pudo completar la respuesta. La parte recibida se conserva.'})}\n\n"
+
+
 @router.post("/chat/stream")
 async def chat_with_ia_stream(
     request: ChatRequest,
@@ -76,10 +102,11 @@ async def chat_with_ia_stream(
 
     agent = AgentService(db)
     return StreamingResponse(
-        agent.chat_stream(request, current_user),
+        _stream_with_limits(agent, request, current_user),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
             "Content-Type": "text/event-stream",
         }
@@ -92,6 +119,21 @@ async def get_available_models(
     """Obtiene la lista de modelos de IA disponibles."""
     agent = AgentService(db)
     return await agent.get_available_models()
+
+
+@router.post("/conversations/{conversation_id}/map-actions/ack")
+async def acknowledge_map_actions(conversation_id: UUID, acknowledgement: MapActionAcknowledgement,
+                                  db: AsyncSession = Depends(get_db),
+                                  current_user: User = Depends(get_current_active_user)):
+    try:
+        found = await HistoryService(db).acknowledge_map_actions(conversation_id, current_user.id,
+                    acknowledgement.request_id, acknowledgement.applied_indices)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    if not found:
+        raise HTTPException(404, detail="No se encontró la respuesta en tu conversación")
+    await db.commit()
+    return {"success": True}
 
 @router.get("/conversations", response_model=List[Conversation])
 async def get_chat_history(

@@ -23,7 +23,7 @@ class RouteTools:
                     ST_YMax(ST_Envelope(lf.geom)) as bbox_ymax
                 FROM public.layer_features lf
                 JOIN public.layers l ON l.id = lf.layer_id
-                WHERE l.name ILIKE 'RUTAS'
+                WHERE l.visibility = 'PUBLIC' AND l.name ILIKE 'RUTAS'
                   AND (
                     lf.properties->>'cod_ruta' ILIKE :ruta_id
                     OR lf.properties->>'name' ILIKE :ruta_id

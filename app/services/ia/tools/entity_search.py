@@ -4,6 +4,8 @@ from typing import Any, Dict, List
 
 from sqlalchemy import text
 
+from .query_scope import query_scope
+
 logger = logging.getLogger(__name__)
 
 MAX_TABLE_ROWS = 50
@@ -88,12 +90,22 @@ def _compact_table_row(props: Dict[str, Any], index: int, value: Any = None) -> 
 
 
 class EntitySearchTools:
-    async def consultar_predios(self, query: str, bbox: List[float] = None, limit: int = 20) -> Dict[str, Any]:
+    async def consultar_predios(self, query: str, bbox: List[float] = None, limit: int = 20, scope=None, zone_geometry=None) -> Dict[str, Any]:
         """Busca predios en la base de datos catastral."""
         try:
             safe_limit = max(1, min(int(limit or 20), MAX_TABLE_ROWS))
-            results = await self.search_service.search(query)
-            features = results.get("features", [])[:safe_limit]
+            spatial_sql, spatial_params, normalized_bbox = query_scope(bbox, zone_geometry=zone_geometry)
+            escaped = str(query).strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            if not escaped or len(escaped) > 500: raise ValueError("Usa un texto de búsqueda de hasta 500 caracteres")
+            rows = (await self.db.execute(text("""
+                SELECT lf.properties, ST_AsGeoJSON(lf.geom)::json AS geometry
+                FROM layer_features lf JOIN layers l ON l.id = lf.layer_id
+                WHERE l.visibility = 'PUBLIC'
+                  AND (unaccent(lower(l.name)) LIKE '%predio%' OR unaccent(lower(l.name)) LIKE '%catastr%'
+                       OR unaccent(lower(coalesce(l.category,''))) LIKE '%catastr%')
+                  AND EXISTS (SELECT 1 FROM jsonb_each_text(lf.properties) kv WHERE unaccent(kv.value) ILIKE unaccent(:query))
+                """ + spatial_sql + " ORDER BY lf.id LIMIT :limit"), {"query": f"%{escaped}%", "limit": safe_limit + 1, **spatial_params})).mappings().all()
+            features = [{"properties": row["properties"], "geometry": row["geometry"]} for row in rows[:safe_limit]]
             markers = []
 
             for feature in features:
@@ -105,7 +117,7 @@ class EntitySearchTools:
                         "lat": coords[1],
                         "lng": coords[0],
                         "label": get_feature_display_name(props) or props.get("matricula") or props.get("id"),
-                        "popup": f"Propietario: {props.get('propietario', 'N/A')}<br>Area: {props.get('area_m2', '0')} m2",
+                        "popup": f"Propietario: {props.get('propietario', 'N/A')}<br>Area: {str(props['area_m2']) + ' m²' if props.get('area_m2') is not None else 'No disponible'}",
                         "properties": props,
                     })
 
@@ -116,14 +128,10 @@ class EntitySearchTools:
             return {
                 "success": True,
                 "data": table_data,
-                "count": len(features),
-                "map_actions": [
-                    {
-                        "map_action": "show_markers",
-                        "markers": markers,
-                        "zoom_to": True,
-                    }
-                ],
+                "count": len(features), "has_more": len(rows) > safe_limit,
+                "scope": "zone_polygon" if zone_geometry else "bbox_intersection" if normalized_bbox else "published_cadastral_layers",
+                "bbox": normalized_bbox, "source": "Capas catastrales publicadas de GeoMaps",
+                "map_actions": [{"map_action": "show_markers", "markers": markers, "zoom_to": True}] if markers else [],
                 "analytics_data": {
                     "type": "table",
                     "title": f"Resultados de Búsqueda: {query}",
@@ -133,7 +141,7 @@ class EntitySearchTools:
                     "display_limit": safe_limit,
                     "report_available": True,
                 },
-                "mensaje": f"Se encontraron {len(features)} resultados para la búsqueda '{query}'.",
+                "mensaje": f"Se muestran {len(features)} resultados de capas catastrales publicadas para la búsqueda '{query}'.",
             }
         except Exception as exc:
             logger.error("Error en consultar_predios: %s", exc)
@@ -152,13 +160,13 @@ class EntitySearchTools:
                 SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
                 FROM layer_features lf
                 JOIN layers l ON l.id = lf.layer_id
-                WHERE unaccent(l.name) ILIKE unaccent(:layer)
+                WHERE l.visibility = 'PUBLIC' AND l.name = :layer
                   AND unaccent(lf.properties->>:field) ILIKE unaccent(:value)
                 LIMIT 1
             """)
             result = await self.db.execute(
                 stmt,
-                {"layer": f"%{layer_name}%", "field": search_field, "value": f"%{search_value}%"},
+                {"layer": layer_name, "field": search_field, "value": f"%{search_value}%"},
             )
             entity = result.mappings().one_or_none()
 
@@ -201,13 +209,13 @@ class EntitySearchTools:
                     SELECT lf.id, ST_AsGeoJSON(lf.geom) as geom, lf.properties
                     FROM layer_features lf
                     JOIN layers l ON l.id = lf.layer_id
-                    WHERE unaccent(l.name) ILIKE unaccent(:layer)
+                    WHERE l.visibility = 'PUBLIC' AND l.name = :layer
                       AND unaccent(lf.properties->>:field) ILIKE unaccent(:value)
                     LIMIT 1
                 """)
                 result = await self.db.execute(
                     stmt,
-                    {"layer": f"%{layer_name}%", "field": search_field, "value": f"%{value}%"},
+                    {"layer": layer_name, "field": search_field, "value": f"%{value}%"},
                 )
                 entity = result.mappings().one_or_none()
                 if not entity:
@@ -247,27 +255,28 @@ class EntitySearchTools:
             logger.error("Error en buscar_y_mostrar_entidades: %s", exc)
             return {"success": False, "error": str(exc)}
 
-    async def consultar_datos_tabla(self, layer_name: str, limit: int = 10) -> Dict[str, Any]:
+    async def consultar_datos_tabla(self, layer_name: str, limit: int = 10, bbox=None, scope=None, filter_field=None, filter_value=None, zone_geometry=None) -> Dict[str, Any]:
         """Obtiene un listado de registros de una capa para mostrar en tabla."""
         try:
             safe_limit = max(1, min(int(limit or 10), MAX_TABLE_ROWS))
-            stmt_layer = text("SELECT id FROM public.layers WHERE unaccent(name) ILIKE unaccent(:name) LIMIT 1")
-            res_layer = await self.db.execute(stmt_layer, {"name": f"%{layer_name}%"})
+            stmt_layer = text("SELECT id FROM public.layers WHERE visibility = 'PUBLIC' AND name = :name LIMIT 1")
+            res_layer = await self.db.execute(stmt_layer, {"name": layer_name})
             layer_id = res_layer.scalar()
 
             if not layer_id:
                 return {"success": False, "error": f"Capa '{layer_name}' no encontrada."}
 
-            stmt_count = text("SELECT COUNT(*) FROM layer_features WHERE layer_id = :lid")
-            total_records = int((await self.db.execute(stmt_count, {"lid": layer_id})).scalar() or 0)
+            scope_sql, scope_params, normalized_bbox = query_scope(bbox, filter_field, filter_value, zone_geometry)
+            stmt_count = text("SELECT COUNT(*) FROM layer_features WHERE layer_id = :lid" + scope_sql)
+            total_records = int((await self.db.execute(stmt_count, {"lid": layer_id, **scope_params})).scalar() or 0)
 
             stmt_data = text("""
                 SELECT properties, ST_AsGeoJSON(ST_Centroid(geom)) as centroid
                 FROM layer_features
-                WHERE layer_id = :lid
-                LIMIT :limit
+                WHERE layer_id = :lid """ + scope_sql + """
+                ORDER BY id LIMIT :limit
             """)
-            result = await self.db.execute(stmt_data, {"lid": layer_id, "limit": safe_limit})
+            result = await self.db.execute(stmt_data, {"lid": layer_id, "limit": safe_limit, **scope_params})
             rows = result.fetchall()
 
             table_data = []
@@ -301,6 +310,11 @@ class EntitySearchTools:
             return {
                 "success": True,
                 "layer": layer_name,
+                "scope": "zone_polygon" if zone_geometry else "bbox_intersection" if normalized_bbox else "exact_attribute_filter" if filter_field else "entire_layer",
+                "filter": {"field": filter_field, "value": filter_value} if filter_field else None,
+                "warnings": ["Se excluyen geometrías nulas o inválidas del alcance espacial"] if normalized_bbox else [],
+                "bbox": normalized_bbox,
+                "source": "GeoMaps / PostGIS",
                 "data": table_data,
                 "count": len(table_data),
                 "total_records": total_records,

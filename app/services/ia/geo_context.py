@@ -51,9 +51,17 @@ def resolve_geo_context(context_mapa: dict | None, geo_context: dict | None) -> 
         extent = geo_context.get("conversation_extent")
     if extent is None or extent == {} or extent == []:
         extent = context_mapa.get("extent")
+    compared_zones = geo_context.get("conversation_zones") or []
+    if not isinstance(compared_zones, list) or len(compared_zones) > 6 or any(not isinstance(zone, dict) for zone in compared_zones):
+        raise ValueError("La comparación admite hasta seis zonas conocidas")
+    filters = geo_context.get("applied_filters") or []
+    if "active_filter" in context_mapa:
+        current_filter = context_mapa.get("active_filter")
+        filters = [current_filter] if isinstance(current_filter, dict) else []
     return {
         "bbox": normalize_extent_to_bbox(extent),
         "active_zone": zone,
+        "compared_zones": compared_zones,
         "conversation_layers": geo_context.get("conversation_layers") or [],
-        "applied_filters": geo_context.get("applied_filters") or [],
+        "applied_filters": filters,
     }

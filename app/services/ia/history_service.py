@@ -7,6 +7,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.ia import Conversation, MessageRead, IASuggestion
 from app.core.config import settings
+from app.services.ia.conversation_memory import build_conversation_memory
 
 class HistoryService:
     def __init__(self, db: AsyncSession):
@@ -36,6 +37,13 @@ class HistoryService:
         if not conversation_id:
             return []
 
+        check = await self.db.execute(
+            text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
+            {"cid": conversation_id, "uid": user_id}
+        )
+        if not check.fetchone():
+            return []
+
         try:
             r = await self._get_redis()
             cached = await r.get(self._cache_key_history(conversation_id))
@@ -44,14 +52,6 @@ class HistoryService:
                 return [MessageRead(**m) for m in raw]
         except Exception:
             pass  # Redis falló → seguir con DB
-
-        # Verificar propiedad
-        check = await self.db.execute(
-            text("SELECT id FROM ia_conversations WHERE id = :cid AND user_id = :uid"),
-            {"cid": conversation_id, "uid": user_id}
-        )
-        if not check.fetchone():
-            return []
 
         stmt = text("""
             SELECT id, role, content, tool_call_id, metadata, created_at
@@ -91,7 +91,14 @@ class HistoryService:
         user_id: UUID,
         max_messages: int = 20
     ) -> List[MessageRead]:
-        messages = await self.get_messages(conversation_id, user_id)
+        messages = [message for message in await self.get_messages(conversation_id, user_id)
+                    if (message.metadata or {}).get('kind') != 'conversation_memory']
+        if len(messages) > max_messages and conversation_id:
+            summary = build_conversation_memory(messages[:-max_messages])
+            if summary:
+                previous = await self.get_conversation_summary(conversation_id)
+                if summary != previous:
+                    await self.save_conversation_summary(conversation_id, summary)
         if len(messages) <= max_messages:
             return messages
             
@@ -122,10 +129,16 @@ class HistoryService:
                 return summary
         except Exception:
             pass
-        return None
+        result = await self.db.execute(text("""
+            SELECT content FROM ia_messages
+            WHERE conversation_id = :cid AND metadata->>'kind' = 'conversation_memory'
+            ORDER BY created_at DESC LIMIT 1
+        """), {"cid": conversation_id})
+        return result.scalar()
 
     async def save_conversation_summary(self, conversation_id: UUID, summary: str):
         """Guarda el resumen generado por el agente para memoria de largo plazo."""
+        await self.save_message(conversation_id, 'system', summary[:6000], metadata={'kind': 'conversation_memory', 'version': 1})
         try:
             r = await self._get_redis()
             await r.set(
@@ -166,6 +179,27 @@ class HistoryService:
             await r.delete(self._cache_key_history(conversation_id))
         except Exception:
             pass
+
+    async def acknowledge_map_actions(self, conversation_id, user_id, request_id, applied_indices):
+        if any(index < 0 or index > 49 for index in applied_indices):
+            raise ValueError("Índice de acción inválido")
+        # Store indices against canonical server proposals; do not accept client-supplied actions.
+        result = await self.db.execute(text("""
+            UPDATE ia_messages m
+            SET metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object('applied_action_indices', CAST(:indices AS jsonb))
+            WHERE m.conversation_id = :cid AND m.role = 'assistant'
+              AND m.metadata->>'request_id' = :rid
+              AND EXISTS (SELECT 1 FROM ia_conversations c WHERE c.id = m.conversation_id AND c.user_id = :uid)
+            RETURNING m.id
+        """), {"cid": conversation_id, "uid": user_id, "rid": request_id, "indices": json.dumps(sorted(set(applied_indices)))})
+        found = result.fetchone() is not None
+        if found:
+            try:
+                redis = await self._get_redis()
+                await redis.delete(self._cache_key_history(conversation_id))
+            except Exception:
+                pass
+        return found
 
     # ── Resto de métodos sin cambios ───────────
     async def get_user_conversations(self, user_id: UUID) -> List[Conversation]:

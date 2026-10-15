@@ -21,7 +21,7 @@ class ZoneAnalysisTools:
                     count(*) as count
                 FROM layer_features lf
                 JOIN layers l ON l.id = lf.layer_id
-                WHERE l.visibility != 'PRIVATE'
+                WHERE l.visibility = 'PUBLIC'
                   AND lf.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
                   AND CASE WHEN ST_IsValid(lf.geom)
                       THEN ST_Intersects(lf.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) ELSE FALSE END

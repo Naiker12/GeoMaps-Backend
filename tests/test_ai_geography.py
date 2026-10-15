@@ -109,6 +109,7 @@ class AgentGeographyTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.agent = AgentService(AsyncMock())
         self.agent._analysis_bbox = [-75, 10, -74, 11]
+        self.agent.tools_service.resolve_public_layer = AsyncMock(side_effect=lambda name, layer_id=None: {"success": True, "layer": {"id": uuid.uuid4(), "name": name}})
 
     async def test_foreign_conversation_creates_owned_history(self):
         user = SimpleNamespace(id=uuid.uuid4())
@@ -147,7 +148,7 @@ class AgentGeographyTests(unittest.IsolatedAsyncioTestCase):
         self.agent._save_audit_log = AsyncMock()
         self.agent.history_service = SimpleNamespace(create_conversation=AsyncMock(return_value=uuid.uuid4()),
             get_trimmed_history=AsyncMock(return_value=[]), get_conversation_summary=AsyncMock(return_value=None), save_message=AsyncMock())
-        self.agent.tools_service.get_tools_metadata = AsyncMock(return_value=[])
+        self.agent.tools_service.get_tools_metadata = AsyncMock(return_value=[{"type":"function", "function":{"name":"analizar_capa_geografica"}}])
         self.agent.tools_service.analizar_capa_geografica = AsyncMock(side_effect=[
             {"success": True, "analysis": {"total_features": 3}},
             {"success": True, "analysis": {"total_features": 7}},
