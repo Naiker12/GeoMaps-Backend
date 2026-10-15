@@ -3,7 +3,7 @@ FUNCION: API KEYS
 Archivos principales:
 - app/api/v1/api_keys.py
 - app/api/v1/admin/api_keys.py
-- app/services/api_key_service.py
+- app/services/api_keys/service.py
 - app/repositories/api_key/*
 - app/schemas/api_key.py
 - app/db/models/api_key.py

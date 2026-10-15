@@ -2,8 +2,8 @@ FUNCION: DESCARGAS Y RECURSOS
 
 Archivos principales:
 - app/api/v1/downloads.py
-- app/services/download_service.py
-- app/services/download_storage_service.py
+- app/services/downloads/service.py
+- app/services/downloads/storage.py
 - app/repositories/download_repository.py
 - app/schemas/download.py
 

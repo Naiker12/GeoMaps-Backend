@@ -38,7 +38,6 @@ Once pruebas cubren CSV con saltos de línea entre comillas, GeoJSON con geometr
 
 ## API keys, identidad y buenas prácticas
 
-`test_api_key_rate_limit.py` comprueba validación de límites positivos, rechazo 429 con Retry-After y fallo Redis 503. Si encuentra `redis-server`, arranca un proceso local sin persistencia y prueba 30 peticiones concurrentes, vencimiento de ventana y aislamiento de llaves. Sin el ejecutable, esas tres integraciones se omiten explícitamente.
 
 `test_backend_practices.py` verifica compatibilidad de imports ORM, consultas de cuotas parametrizadas, límites coherentes, UTC en revocación, mensajes de error sin detalles internos y CORS restringido. `test_auth_service.py` cubre creación con rol USER, identidades inválidas, cuentas inactivas, rollback, comprobación de contraseña fuera del event loop y transacciones de perfil sin duplicar. La suite de autenticación también valida sesiones con sid, y búsqueda comprueba coordenadas, límites y el parámetro entero de feature.
 
@@ -46,8 +45,14 @@ Once pruebas cubren CSV con saltos de línea entre comillas, GeoJSON con geometr
 
 `test_layer_access.py` verifica la política pública en siete rutas de lectura, filtros SQL de categorías/GeoJSON/propiedades/detalles/campos, respuestas 404 para features inaccesibles, IDs enteros y propagación de errores de base de datos. Estas consultas ORM se inspeccionan con sesión simulada; no sustituyen integración PostGIS.
 
-`test_api_key_accounting.py` cubre reserva previa con FOR UPDATE por usuario, finalización idempotente, liberación por respuesta fallida, fecha de admisión en estadísticas, middleware ante 429/excepciones/timeout y cierre de sesión de logging. Ejecuta la expresión de upsert sobre SQLite con 30 escrituras concurrentes y verifica que conserva todos los incrementos. No prueba el bloqueo de filas en PostgreSQL; falta esa integración real. Autenticación incluye dos casos adicionales de admisión concurrente rechazada y de resolución repetida sin doble reserva.
 
 `test_jwt_security.py` firma tokens HS256/ES256/RS256 con llaves de prueba y verifica claims, secreto literal y caché JWKS simulada. `test_report_security.py` cubre propiedad de estado/descarga, sesión independiente del trabajo y render en hilos; el PDF usa bytes ficticios y no valida maquetación ni Typst real. `test_ogc_proxy.py` simula streaming HTTP para comprobar límites y errores sin tráfico externo. Las pruebas administrativas comprueban identidad User canónica y ausencia de elevación implícita de privilegios.
 
 `test_resource_ownership.py` verifica política propietario/admin y rechazo antes de efectos en DB/storage. `test_layer_transactions.py` cubre reemplazo transaccional, reserva de bloqueo de capa, compensación del archivo nuevo, no eliminación de archivos ante fallos DB y WKT parametrizado. `test_spatial_queries.py` comprueba campos JSON parametrizados, bbox/límites válidos, valores numéricos con signo y propagación de errores DB. `test_download_publication.py` valida publicación del catálogo y orden de eliminación DB/storage. DB y storage se simulan; faltan integraciones PostgreSQL/PostGIS reales para este lote.
+
+
+El módulo de API keys para terceros fue retirado. `test_authentication.py` verifica que ni X-API-Key ni el parámetro api_key autentiquen el perfil y que la sesión normal continúe funcionando.
+
+## Validación de integración — 14 de octubre de 2026
+
+`venv/Scripts/python.exe -m unittest discover -s tests -v`: **193 pruebas aprobadas**. Incluye proveedores/modelo predeterminado, streaming, protocolo de herramientas, memoria, límites de IA, protección de tablas no mapeadas, retiro de proyectos con respaldo y compilación real Typst con comillas/caracteres especiales. No aplica migraciones ni conecta con Supabase/PostGIS de producción.
