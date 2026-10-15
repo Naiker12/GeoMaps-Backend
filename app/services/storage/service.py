@@ -41,9 +41,6 @@ BUCKET_MAP = {
     "images": "Imagen",
     "image": "Imagen",
     "imagen": "Imagen",
-    "models": "Imagen3d",
-    "model": "Imagen3d",
-    "imagen3d": "Imagen3d",
     "resources": "resources",
     "downloads": "Download",
     "download": "Download",
@@ -125,6 +122,8 @@ class StorageService:
 
     def _resolve_bucket(self, category: str) -> str:
         normalized = (category or "layers").strip().lower()
+        if normalized in {"models", "model", "imagen3d", "project", "projects", "proyectos"}:
+            raise ValueError("El almacenamiento de proyectos fue retirado")
         return BUCKET_MAP.get(normalized, "Capas")
 
     async def create_signed_url(self, bucket: str, file_path: str, expires_in: int = 3600) -> str:
