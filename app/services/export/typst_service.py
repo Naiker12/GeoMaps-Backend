@@ -142,7 +142,7 @@ class TypstPDFService:
     #v(10mm)
     #line(length: 100%, stroke: 0.5pt + rgb("#CBD5E1"))
     #v(6mm)
-    #grid(columns: (1fr, 1fr), column-gutter: 10pt,
+    #grid(columns: (1fr, 1fr), column-gutter: 10pt, row-gutter: 10pt,
       [#text(size: 8pt, fill: rgb("#94A3B8"))[Area de estudio] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{zones_summary}]],
       [#text(size: 8pt, fill: rgb("#94A3B8"))[Fecha de generacion] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{generated_at}]],
       [#text(size: 8pt, fill: rgb("#94A3B8"))[Capas analizadas] #linebreak() #text(size: 11pt, fill: rgb("#0F172A"), weight: "bold")[{layers_summary}]],
@@ -266,7 +266,7 @@ Este documento tecnico consolida resultados GIS reales, estadisticas espaciales 
         risk_level = self._t(risk.get("risk_level", "No determinado"))
         methodology = self._t(risk.get("methodology", "No especificada"))
         return f"""
-#grid(columns: (1fr, 1fr), column-gutter: 10pt,
+#grid(columns: (1fr, 1fr), column-gutter: 10pt, row-gutter: 10pt,
   block(fill: rgb("#FEF3C7"), stroke: 0.5pt + rgb("#F59E0B"), inset: 10pt, radius: 4pt)[
     #text(size: 8pt, fill: rgb("#92400E"))[Nivel de riesgo] #linebreak()
     #text(size: 16pt, weight: "bold", fill: rgb("#B45309"))[{risk_level}]
@@ -317,6 +317,11 @@ Este documento tecnico consolida resultados GIS reales, estadisticas espaciales 
         text = "" if value is None else str(value)
         replacements = {
             "\\": "\\\\",
+            '"': '\\"',
+            '@': '\\@',
+            '$': '\\$',
+            '<': '\\<',
+            '>': '\\>',
             "[": "\\[",
             "]": "\\]",
             "#": "\\#",
