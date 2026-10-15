@@ -14,21 +14,27 @@ if _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 _url = make_url(_db_url)
-_is_supabase_transaction_pooler = (
-    (_url.host or "").endswith(".pooler.supabase.com") and _url.port == 6543
+_is_supabase_pooler = (
+    (_url.host or "").endswith(".pooler.supabase.com")
 )
 
-_engine_kwargs = {
+_engine_kwargs: dict = {
     "echo": False,
     "pool_pre_ping": True,
 }
 
-if _is_supabase_transaction_pooler:
+if _is_supabase_pooler:
+    # Usar NullPool para evitar agotar las conexiones del plan gratuito.
+    # Se aplica tanto al Transaction Pooler (6543) como al Session Pooler (5432).
     _engine_kwargs["poolclass"] = NullPool
-    _engine_kwargs["connect_args"] = {"prepare_threshold": None}
+    _engine_kwargs["connect_args"] = {
+        "prepare_threshold": None,
+        "connect_timeout": 10,
+    }
 else:
-    _engine_kwargs["pool_size"] = 10
-    _engine_kwargs["max_overflow"] = 20
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 10
+    _engine_kwargs["connect_args"] = {"connect_timeout": 10}
 
 engine = create_async_engine(_db_url, **_engine_kwargs)
 
