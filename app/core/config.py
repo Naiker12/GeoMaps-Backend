@@ -74,6 +74,7 @@ class Settings(BaseSettings):
 
     # Modelos de IA (Gemini Nativo)
     GOOGLE_API: Optional[str] = None
+    AI_PROVIDER_ENCRYPTION_KEY: Optional[str] = None
     LLM_TEMPERATURE_GIS: float = 0.15
     STT_PROVIDER: str = "gemini"
     STT_MODEL: str = "gemini-2.0-flash"

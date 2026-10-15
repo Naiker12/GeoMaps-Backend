@@ -7,11 +7,13 @@ from .entity_search import EntitySearchTools
 from .layer_stats import LayerStatsTools
 from .map_controls import MapControlTools
 from .route_tools import RouteTools
+from .catalog import CatalogTools
 from .zone_analysis import ZoneAnalysisTools
 from .geographic_analysis import GeographicAnalysisTools
 
 
 class ToolsService(
+    CatalogTools,
     EntitySearchTools,
     LayerStatsTools,
     MapControlTools,
@@ -21,11 +23,11 @@ class ToolsService(
 ):
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.search_service = SearchService(db)
+        self.search_service = SearchService(db, public_only=True)
 
     async def get_tools_metadata(self) -> List[Dict[str, Any]]:
         """Devuelve la definicion de herramientas para el LLM."""
-        return [
+        definitions = self.catalog_metadata() + [
             {"type": "function", "function": {
                 "name": "analizar_capa_geografica",
                 "description": "Cuenta geometrías válidas de una capa, muestra un gráfico y calcula la suma de áreas de polígonos en m². Usa bbox para intersección exacta o coordenadas y radio para proximidad en metros. Declara alcance, fuente y limitaciones; no calcula cobertura sin solapamientos.",
@@ -262,6 +264,16 @@ class ToolsService(
                 },
             },
         ]
+        for definition in definitions:
+            function = definition['function']
+            if function['name'] in {'consultar_datos_tabla','consultar_estadisticas_capa','consultar_predios','analizar_capa_geografica','consultar_registros_capa'}:
+                function['parameters']['properties'].update({
+                    'zone_name': {'type':'string','maxLength':200,'description':'Nombre de una zona ya localizada en esta conversación; usa sus límites conocidos.'},
+                    'bbox': {'type':'array','items':{'type':'number'},'minItems':4,'maxItems':4},
+                    'scope': {'type':'string','enum':['current_area','entire_layer']},
+                })
+        return definitions
+
 
 
 __all__ = ["ToolsService"]

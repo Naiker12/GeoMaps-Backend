@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
+from .query_scope import query_scope
+
 logger = logging.getLogger(__name__)
 
 PRIORITY_FIELD_NAMES = [
@@ -62,10 +64,10 @@ class LayerStatsTools:
                 SELECT properties
                 FROM layer_features
                 JOIN layers ON layers.id = layer_features.layer_id
-                WHERE unaccent(layers.name) ILIKE unaccent(:name)
+                WHERE layers.visibility = 'PUBLIC' AND layers.name = :name
                 LIMIT 5
             """)
-            result = await self.db.execute(stmt, {"name": f"%{layer_name}%"})
+            result = await self.db.execute(stmt, {"name": layer_name})
             rows = result.fetchall()
 
             if not rows:
@@ -88,8 +90,8 @@ class LayerStatsTools:
             return {"success": False, "error": str(exc)}
 
     async def _get_layer_id(self, layer_name: str) -> Tuple[Optional[Any], Optional[str]]:
-        stmt = text("SELECT id, name FROM public.layers WHERE unaccent(name) ILIKE unaccent(:name) LIMIT 1")
-        result = await self.db.execute(stmt, {"name": f"%{layer_name}%"})
+        stmt = text("SELECT id, name FROM public.layers WHERE visibility = 'PUBLIC' AND name = :name LIMIT 1")
+        result = await self.db.execute(stmt, {"name": layer_name})
         row = result.fetchone()
         if not row:
             return None, None
@@ -205,6 +207,7 @@ class LayerStatsTools:
         chart_type: str = "bar",
         include_chart: bool = True,
         limit: int = 8,
+        bbox=None, scope=None, filter_field=None, filter_value=None, zone_geometry=None,
     ) -> Dict[str, Any]:
         """Obtiene distribucion de valores usando un campo descriptivo y legible."""
         try:
@@ -217,16 +220,17 @@ class LayerStatsTools:
             if not layer_id:
                 return {"success": False, "error": f"Capa '{layer_name}' no encontrada."}
 
+            scope_sql, scope_params, normalized_bbox = query_scope(bbox, filter_field, filter_value, zone_geometry)
             original_field = field
             field, field_metadata = await self._get_best_chart_field(layer_id, field)
 
             stmt_total = text("""
                 SELECT count(*)
                 FROM layer_features
-                WHERE layer_id = :lid
+                WHERE layer_id = :lid """ + scope_sql + """
                   AND properties->>:field IS NOT NULL
             """)
-            total_result = await self.db.execute(stmt_total, {"field": field, "lid": layer_id})
+            total_result = await self.db.execute(stmt_total, {"field": field, "lid": layer_id, **scope_params})
             total_records = int(total_result.scalar() or 0)
 
             stmt_stats = text("""
@@ -234,13 +238,13 @@ class LayerStatsTools:
                     properties->>:field as category,
                     count(*) as total
                 FROM layer_features
-                WHERE layer_id = :lid
+                WHERE layer_id = :lid """ + scope_sql + """
                   AND properties->>:field IS NOT NULL
                 GROUP BY 1
                 ORDER BY 2 DESC
                 LIMIT :limit
             """)
-            result = await self.db.execute(stmt_stats, {"field": field, "lid": layer_id, "limit": grouped_limit})
+            result = await self.db.execute(stmt_stats, {"field": field, "lid": layer_id, "limit": grouped_limit, **scope_params})
             rows = result.fetchall()
 
             all_categories = [
@@ -276,6 +280,11 @@ class LayerStatsTools:
             response = {
                 "success": True,
                 "layer": layer_label,
+                "scope": "zone_polygon" if zone_geometry else "bbox_intersection" if normalized_bbox else "exact_attribute_filter" if filter_field else "entire_layer",
+                "filter": {"field": filter_field, "value": filter_value} if filter_field else None,
+                "warnings": ["Se excluyen geometrías nulas o inválidas del alcance espacial"] if normalized_bbox else [],
+                "bbox": normalized_bbox,
+                "source": "GeoMaps / PostGIS",
                 "field": field,
                 "field_used": field,
                 "field_label": field_label,

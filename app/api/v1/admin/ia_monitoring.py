@@ -6,9 +6,9 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from app.api import deps
 from app.db.session import get_db
 from app.schemas.ia import IAModelConfig
+from app.services.ia.provider_connections import ConnectionRequest, ConnectModelRequest, discover_models, encrypt_key, validate_url
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -299,6 +299,13 @@ async def update_model_config(
     model_uuid: UUID, updates: Dict[str, Any], db: AsyncSession = Depends(get_db)
 ):
     """Actualiza la configuración o estado de un modelo."""
+    allowed = {"name", "is_active", "input_cost_per_1k", "output_cost_per_1k", "has_function_calling", "has_vision", "max_context_tokens"}
+    if set(updates) - allowed:
+        raise HTTPException(422, "Campos de actualización no permitidos.")
+    if updates.get("is_active") is False:
+        row = (await db.execute(text("SELECT is_default FROM ia_models_config WHERE id = :mid FOR UPDATE"), {"mid": str(model_uuid)})).mappings().first()
+        if row and row["is_default"]:
+            raise HTTPException(409, "Selecciona otro modelo predeterminado antes de desactivar este.")
     if not updates:
         raise HTTPException(
             status_code=400, detail="No se enviaron campos para actualizar"
@@ -322,6 +329,9 @@ async def update_model_config(
 @router.delete("/models/{model_uuid}")
 async def delete_model_config(model_uuid: UUID, db: AsyncSession = Depends(get_db)):
     """Elimina un modelo de la configuración."""
+    row = (await db.execute(text("SELECT is_default FROM ia_models_config WHERE id = :mid FOR UPDATE"), {"mid": str(model_uuid)})).mappings().first()
+    if row and row["is_default"]:
+        raise HTTPException(409, "Selecciona otro modelo predeterminado antes de eliminar este.")
     stmt = text("DELETE FROM ia_models_config WHERE id = :mid RETURNING id")
     result = await db.execute(stmt, {"mid": str(model_uuid)})
     await db.commit()
@@ -350,3 +360,54 @@ async def clear_all_ia_data(db: AsyncSession = Depends(get_db)):
         raise HTTPException(
             status_code=500, detail=f"Error al limpiar historial: {str(e)}"
         )
+@router.get('/providers')
+async def list_providers():
+    from app.services.ia.provider_connections import PROVIDERS
+    return PROVIDERS
+
+
+@router.post('/providers/discover')
+async def discover_provider_models(connection: ConnectionRequest):
+    return {'models': await discover_models(connection)}
+
+
+@router.post('/models/connect', response_model=IAModelConfig)
+async def connect_provider_model(connection: ConnectModelRequest, db: AsyncSession = Depends(get_db)):
+    available = await discover_models(connection)
+    selected = next((model for model in available if model['id'] == connection.model_id), None)
+    if selected is None:
+        raise HTTPException(422, 'Selecciona un modelo disponible en el proveedor.')
+    encrypted = encrypt_key(connection.api_key.get_secret_value().strip())
+    await db.execute(text('SELECT pg_advisory_xact_lock(674312)'))
+    existing = (await db.execute(text('SELECT id, is_default FROM ia_models_config WHERE provider = :provider AND model_id = :model_id FOR UPDATE'), {'provider': connection.provider, 'model_id': connection.model_id})).mappings().first()
+    make_default = connection.is_default or bool(existing and existing['is_default'])
+    if make_default:
+        await db.execute(text('UPDATE ia_models_config SET is_default = false WHERE is_default = true'))
+    if existing:
+        result = await db.execute(text('UPDATE ia_models_config SET name=:name, base_url=:url, api_key_encrypted=:key, is_active=true, is_default=:default, has_function_calling=coalesce(CAST(:tools AS boolean),has_function_calling), has_vision=coalesce(CAST(:vision AS boolean),has_vision), max_context_tokens=coalesce(CAST(:context AS integer),max_context_tokens) WHERE id=:id RETURNING *'), {'name': connection.name, 'url': validate_url(connection.provider, connection.base_url), 'key': encrypted, 'default': make_default, 'id': existing['id'], 'tools': selected.get('has_function_calling'), 'vision': selected.get('has_vision'), 'context': selected.get('max_context_tokens')})
+        row = result.mappings().one()
+        await db.commit()
+        return IAModelConfig.model_validate(dict(row))
+    result = await db.execute(text('''
+        INSERT INTO ia_models_config (name, provider, model_id, is_active, base_url, api_key_encrypted, is_default, has_function_calling, has_vision, max_context_tokens, input_cost_per_1k, output_cost_per_1k)
+        VALUES (:name, :provider, :model_id, true, :base_url, :api_key_encrypted, :is_default, :tools, :vision, :context, 0, 0)
+        RETURNING *
+    '''), dict(name=connection.name.strip(), provider=connection.provider, model_id=connection.model_id,
+               base_url=validate_url(connection.provider, connection.base_url), api_key_encrypted=encrypted, is_default=make_default, tools=selected.get('has_function_calling') or False, vision=selected.get('has_vision') or False, context=selected.get('max_context_tokens') or 4096))
+    row = result.mappings().one()
+    await db.commit()
+    return IAModelConfig.model_validate(dict(row))
+
+
+@router.post('/models/{model_uuid}/default')
+async def set_default_model(model_uuid: UUID, db: AsyncSession = Depends(get_db)):
+    await db.execute(text('SELECT pg_advisory_xact_lock(674312)'))
+    row = (await db.execute(text('SELECT is_active FROM ia_models_config WHERE id = :mid FOR UPDATE'), {'mid': str(model_uuid)})).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Modelo no encontrado.')
+    if not row['is_active']:
+        raise HTTPException(409, 'Activa el modelo antes de seleccionarlo como predeterminado.')
+    await db.execute(text('UPDATE ia_models_config SET is_default = false WHERE is_default = true'))
+    await db.execute(text('UPDATE ia_models_config SET is_default = true WHERE id = :mid'), {'mid': str(model_uuid)})
+    await db.commit()
+    return {'status': 'updated'}

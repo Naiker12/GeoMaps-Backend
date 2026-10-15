@@ -66,7 +66,7 @@ class GeographicAnalysisTools:
             id_clause = " AND id = :requested_layer_id"
         layers = (await self.db.execute(text("""
             SELECT id, name FROM layers
-            WHERE visibility != 'PRIVATE' AND unaccent(name) ILIKE unaccent(:pattern)
+            WHERE visibility = 'PUBLIC' AND unaccent(name) ILIKE unaccent(:pattern)
             """ + id_clause + """
             ORDER BY (lower(unaccent(name)) = lower(unaccent(:name))) DESC, name, id
             LIMIT 11

@@ -15,16 +15,23 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    message: str
-    model: str = "gemini-2.0-flash"
+    message: str = Field(min_length=1, max_length=12000)
+    request_id: Optional[str] = Field(default=None, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')
+    model: Optional[str] = None
     conversation_id: Optional[UUID4] = None
     context_mapa: Optional[Dict[str, Any]] = Field(default_factory=dict)
     geo_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    historial: Optional[List[Message]] = Field(default_factory=list)
+    historial: Optional[List[Message]] = Field(default_factory=list, max_length=20)
 
 
 class DeleteConversationsRequest(BaseModel):
     conversation_ids: List[UUID4] = Field(default_factory=list)
+
+
+class MapActionAcknowledgement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(max_length=64, pattern=r'^[A-Za-z0-9_-]+$')
+    applied_indices: List[int] = Field(default_factory=list, max_length=50)
 
 
 class ChatResponse(BaseModel):
@@ -49,6 +56,9 @@ class IAModelConfig(BaseModel):
     name: str
     provider: str
     model_id: str
+    base_url: Optional[str] = None
+    is_default: bool = False
+    api_key_encrypted: Optional[str] = Field(default=None, exclude=True)
     is_active: bool = True
     input_cost_per_1k: Optional[float] = 0.0
     output_cost_per_1k: Optional[float] = 0.0
