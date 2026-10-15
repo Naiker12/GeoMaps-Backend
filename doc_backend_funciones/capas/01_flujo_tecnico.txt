@@ -2,7 +2,7 @@ FUNCION: CAPAS
 
 Archivos principales:
 - app/api/v1/layers.py
-- app/services/layer_service.py
+- app/services/layers/service.py
 - app/repositories/layer_repository.py
 - app/db/models/layer.py
 - app/schemas/layer.py

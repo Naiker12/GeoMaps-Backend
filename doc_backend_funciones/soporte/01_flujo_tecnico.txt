@@ -3,7 +3,7 @@ FUNCION: SOPORTE
 Archivos principales:
 - app/api/v1/support.py
 - app/api/v1/admin/support.py
-- app/services/support_service.py
+- app/services/support/service.py
 - app/schemas/support.py
 
 Endpoints principales:

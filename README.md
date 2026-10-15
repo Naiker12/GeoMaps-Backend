@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/assets/geomaps-icon.svg" alt="Icono oficial de GeoMaps" width="112" height="112" />
+  <img src="assets/geomaps-icon.svg" alt="Icono oficial de GeoMaps" width="112" height="112" />
 </p>
 
 <h1 align="center">GeoMaps Backend</h1>
 
 <p align="center">API del visor geográfico y del panel administrativo<br />FastAPI · PostgreSQL/PostGIS · Supabase · Redis · IA geográfica</p>
 
-Backend de GeoMaps construido con FastAPI, SQLAlchemy Async, PostgreSQL/PostGIS, Supabase y Google Gemini. Expone la API que alimenta el visor geoespacial, el panel administrativo, capas GIS, busqueda, descargas, API keys, usuarios, analitica e IA.
+Backend de GeoMaps construido con FastAPI, SQLAlchemy Async, PostgreSQL/PostGIS, Supabase y proveedores de IA. Expone la API que alimenta el visor geoespacial, el panel administrativo, capas GIS, busqueda, descargas, usuarios, analitica e IA.
 
 Este README documenta la arquitectura real del backend, sus servicios, librerias, variables de entorno, comandos, rutas y responsabilidades.
 
@@ -47,11 +47,10 @@ La aplicación declara la versión **2.0.0**. El icono se reutiliza del frontend
 | Capas GIS | Carga, almacena y consulta capas geograficas con features y geometria PostGIS. |
 | Busqueda | Busca features GIS por texto o coordenadas. |
 | Descargas | Administra recursos descargables, archivos, metadatos y publicacion. |
-| API Keys | Emite, revoca, audita y monitorea llaves de API. |
 | Administracion | Dashboards, analitica, monitoreo de IA y gestion global. |
-| IA | Chat, streaming, historial, sugerencias, uso, herramientas y proveedor Gemini. |
+| IA | Chat, streaming, historial, herramientas, conexiones de proveedores y modelo predeterminado. |
 | Storage | Integra Supabase Storage para archivos publicos o administrativos. |
-| Auditoria | Registra tiempos de respuesta, uso de API keys y actividad del sistema. |
+| Auditoria | Registra tiempos de respuesta y actividad del sistema. |
 
 ## Stack Tecnico
 
@@ -63,7 +62,7 @@ La aplicación declara la versión **2.0.0**. El icono se reutiliza del frontend
 | GeoAlchemy2 | `0.17.0` | Tipos y funciones geoespaciales para PostGIS. |
 | Psycopg | `3.2.10` | Driver PostgreSQL async/binario. |
 | Alembic | `1.14.0` | Migraciones de base de datos. |
-| Redis, cliente Python | `5.2.1` | Caché de historial IA, límites RPM y estado de reportes. |
+| Redis, cliente Python | `5.2.1` | Caché de historial IA y estado de reportes. |
 | HTTPX | `0.28.1` | Cliente HTTP para JWKS de Supabase y llamadas externas. |
 | Pandas | `2.2.3` | Procesamiento tabular de datos. |
 | NumPy | `2.2.0` | Calculo numerico. |
@@ -125,7 +124,7 @@ app/
   services/               Logica de negocio.
   utils/                  Utilidades compartidas.
 alembic/                  Migraciones.
-docs/                     Documentacion complementaria.
+assets/                   Icono oficial de la aplicación.
 ```
 
 ## Servicios del backend
@@ -137,12 +136,11 @@ Los routers coordinan entrada HTTP y dependencias; los servicios aplican reglas 
 | layers / spatial / geospatial | Archivos GIS, features, validación y consultas espaciales |
 | search / cartografia | Búsqueda y recursos cartográficos |
 | ia | Contexto, herramientas, historial y consumo de modelos |
-| api_keys | Gestión de llaves y finalización de consumo |
 | downloads / storage | Catálogo y archivos externos |
 | report / export | Construcción y render de reportes |
 | analytics / support | Estadísticas administrativas y atención de solicitudes |
 
-El código histórico de proyectos permanece únicamente donde preserva compatibilidad de modelos y migraciones. La presencia de un directorio de servicio no garantiza que tenga un router público registrado; consultar app/main.py y OpenAPI.
+El módulo de proyectos fue retirado del ORM. Su migración explícita exige un respaldo privado verificado; no debe ejecutarse un borrado manual ni usar CASCADE. La presencia de un directorio de servicio no garantiza que tenga un router público registrado; consultar app/main.py y OpenAPI.
 
 ## Modelos Principales
 
@@ -151,13 +149,9 @@ El código histórico de proyectos permanece únicamente donde preserva compatib
 | `User` | `users` | Perfil interno, rol, estado, datos personales y relacion con Supabase. |
 | `UserSession` | `user_sessions` | Sesiones de usuarios/admins, IP, user agent y expiracion. |
 | `Admin` | `admins` | Administradores internos cuando aplica. |
-| Modelos históricos de proyectos | `projects` y tablas asociadas | Conservados para preservar datos y migraciones; sin API activa de proyectos. |
 | `Layer` | `layers` | Metadatos de capa GIS, visibilidad, estilo, archivo y configuraciones. |
 | `LayerFeature` | `layer_features` | Entidades individuales con propiedades JSONB y geometria PostGIS. |
 | `DownloadResource` | `download_resources` | Recursos descargables, archivo, categoria, tags y publicacion. |
-| `APIKey` | `api_keys` | Llaves de API, rol, visibilidad, limites, estado y hash. |
-| `APIKeyUsageLog` | `api_key_usage_logs` | Auditoria de uso por endpoint, metodo, estado, latencia e IP. |
-| `APIKeyDailyStats` | `api_key_daily_stats` | Agregados diarios por llave. |
 | `ActivityLog` | `activity_logs` | Eventos de actividad del sistema. |
 
 ## Referencia API
@@ -209,10 +203,10 @@ BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 | `GOOGLE_API` | Si usa IA | API key de Google Gemini. |
 | `FRONTEND_URL` | Recomendada | URL del frontend para CORS y callbacks. |
 | `BACKEND_CORS_ORIGINS` | Recomendada | Lista de origenes permitidos separados por coma o JSON list. |
-| `REDIS_URL` | Según función | Obligatoria para reportes y API keys con límite RPM; default redis://localhost:6379. |
+| `REDIS_URL` | Según función | Obligatoria para reportes; default redis://localhost:6379. |
 | `SUPABASE_JWT_ISSUER` | Opcional | Por defecto deriva de SUPABASE_URL/auth/v1. |
 | `REDIS_TTL_HISTORY` / `REDIS_TTL_SUMMARY` | Opcional | Defaults 3600 y 86400 segundos. |
-| `IA_USAGE_LIMIT` / `IA_USAGE_WINDOW_HOURS` | Opcional | Defaults 15 y 4; separados de las cuotas API key. |
+| `IA_USAGE_LIMIT` / `IA_USAGE_WINDOW_HOURS` | Opcional | Defaults 15 y 4 para las cuotas de consultas IA. |
 | `DEBUG` | Opcional | Default false. |
 
 La plantilla [.env.example](.env.example) permite empezar sin publicar secretos. Copiarla a `.env` y completar sus valores; añadir SECRET_KEY explícitamente. La lista completa de opciones está en [Settings](app/core/config.py).
@@ -236,7 +230,7 @@ Requisitos recomendados:
 
 - Python 3.12.8, como declara la configuración de despliegue.
 - PostgreSQL con extension PostGIS.
-- Redis para reportes y API keys con RPM; historial IA tiene caché con fallback a DB.
+- Redis para reportes; historial IA tiene caché con fallback a DB.
 - Proyecto Supabase configurado.
 
 Windows PowerShell:
@@ -297,12 +291,11 @@ Consideraciones:
 
 ## Autenticacion Y Seguridad
 
-El backend soporta dos mecanismos principales:
+El backend utiliza JWT y sesiones autenticadas; las API keys para terceros fueron retiradas:
 
 | Mecanismo | Uso |
 | --- | --- |
 | JWT Supabase | Autenticacion del frontend, perfil de usuario y rutas privadas. |
-| API Key | Acceso programatico y auditoria de consumo por endpoint. |
 
 Flujo general:
 
@@ -311,8 +304,7 @@ Flujo general:
 3. El backend valida token con dependencias de seguridad.
 4. POST /api/v1/auth/login/supabase sincroniza el perfil y genera sesión local con cookie HttpOnly.
 5. Las rutas administrativas verifican rol antes de permitir operaciones.
-6. Las API keys se envian con `X-API-Key` o `api_key`.
-7. El middleware registra uso exitoso o intento fallido.
+6. `X-API-Key` y el parámetro `api_key` no autentican usuarios ni sustituyen una sesión.
 
 Crear un usuario en Supabase Authentication **no concede acceso administrativo**. Los perfiles nuevos reciben USER; los privilegios se asignan explícitamente sobre el perfil local mediante un procedimiento autorizado. No se toman roles administrativos de metadatos de registro.
 
@@ -345,7 +337,6 @@ GOOGLE_API=your-google-gemini-api-key
 El backend incluye:
 
 - Middleware que mide tiempo de respuesta y agrega `X-Process-Time`.
-- Registro de uso de API keys exitoso o fallido.
 - Logs configurados desde `app/core/logging.py`.
 - Health check en `/health`.
 - Endpoints administrativos de analitica e IA.
@@ -383,9 +374,6 @@ Los contratos consumidos por el frontend se reflejan especialmente en:
 - `app/schemas/*` del backend.
 - `app/api/v1/*` y `app/api/routes/*` del backend.
 
-## Retiro del módulo de proyectos
-
-La funcionalidad de proyectos fue retirada del admin, del visor público y de la API. Los datos, las tablas, las migraciones y los archivos almacenados se conservan. Los modelos de proyectos del backend son históricos y permanecen registrados para evitar eliminaciones de tablas en futuras migraciones. Consulta `docs/project-module-removal.md` y el inventario `docs/removed-project-files.txt`.
 
 ## IA geográfica y resultados
 
@@ -436,23 +424,11 @@ Los conteos incluyen geometrías válidas, no nulas, SRID 4326 y dentro de rango
 
 ### Configuración de proveedores
 
-El workspace también contiene una ampliación en desarrollo para conexiones de proveedores y modelos: `app/services/ia/provider_connections.py`. Incluye configuración cifrada y adaptadores HTTP. Su publicación y migración deben revisarse con ese lote; no asumir que la versión remota ya cuenta con él. El funcionamiento de Gemini depende de GOOGLE_API y de los modelos activos de la base.
+`app/services/ia/provider_connections.py` permite descubrir modelos y guardar conexiones cifradas. Configurar `AI_PROVIDER_ENCRYPTION_KEY` (Fernet) en el servidor y aplicar la revisión `j0k1l2m3n4o5` antes de usar esta configuración. Las claves de proveedores no son llaves de acceso a la API de GeoMaps. El modelo predeterminado debe estar activo y es único. Gemini conserva el acceso mediante `GOOGLE_API`.
 
 ## Cuotas y concurrencia
 
-Las API keys tienen controles distintos de los límites de uso IA. Preferir X-API-Key al parámetro api_key para evitar incluir credenciales en enlaces y navegación.
-
-| Control | Comportamiento |
-| --- | --- |
-| RPM por llave | Ventana Redis de 60 segundos desde primera admisión; Lua atómico |
-| rate_limit_rpm=null | No usa el control RPM |
-| RPM excedido | HTTP 429 con Retry-After |
-| Redis inaccesible para llave limitada | HTTP 503 |
-| Cuota compartida por usuario | DAILY_API_KEY_LIMIT=10; ventana móvil de 24 horas |
-
-La admisión reserva cupo mediante bloqueo de la fila del usuario y cuenta éxitos o reservas pendientes. Varias llaves de un usuario comparten cuota. Una finalización fallida libera cupo; una reserva interrumpida sigue contando hasta salir de la ventana.
-
-La finalización es idempotente y actualiza log, totales y agregados en transacción. El middleware espera hasta cinco segundos antes de enviar cabeceras; en streaming registra el estado de cabeceras, no cada fragmento del cuerpo. Actualizar todos los workers para compartir la misma garantía de admisión.
+Los límites de consultas IA se configuran con `IA_USAGE_LIMIT` e `IA_USAGE_WINDOW_HOURS`. El módulo de API keys para terceros y sus cuotas fueron retirados.
 
 ## Archivos, transacciones y reportes
 
@@ -465,7 +441,7 @@ El servicio compartido de Storage limita cargas a **50 MiB** y mueve llamadas s�
 | downloads | Download |
 | resources | resources |
 | images | Imagen |
-| models | Imagen3d; compatibilidad histórica |
+| project / models | Retirados; la categoría se rechaza |
 
 Los buckets y policies deben prepararse en Supabase. Una URL almacenada no acredita que el cliente tenga acceso. El catálogo de descarga pública exige publicación y visibilidad pública; modificar o borrar recursos requiere propiedad o administración activa.
 
@@ -491,7 +467,7 @@ El trabajo depende del worker y no constituye una cola durable. Revisar reinicio
 | h8i9j0k1l2m3 | layer_features.last_viewed_at | Depende de g7h8i9j0k1l2 |
 | i9j0k1l2m3n4 | quota_pending y unicidad llave/fecha de estadísticas | Depende de h8i9j0k1l2m3; se detiene con duplicados |
 
-La revisión de estadísticas no borra ni fusiona duplicados automáticamente. El SQL offline de [docs/migrations](docs/migrations) permite revisar operaciones; no sustituye Alembic sobre una revisión destino diferente. Para cambios posteriores, consultar también las migraciones en desarrollo y su documentación específica.
+La revisión de estadísticas no borra ni fusiona duplicados automáticamente. Revisar las operaciones directamente en alembic/versions y comprobar la revisión destino antes de aplicar cambios.
 
 ## Pruebas y alcance de validación
 
@@ -550,12 +526,6 @@ Una rama preparada sin commits propios no representa una funcionalidad nueva. Si
 
 | Documento | Contenido |
 | --- | --- |
-| [Preparación del despliegue](docs/preparacion-despliegue-refactor.md) | Migraciones, Redis y operación |
-| [Diseño de IA geográfica](docs/ia-geografica-diseno-y-validacion.md) | Alcance, unidades y limitaciones |
-| [Revisión del backend](docs/revision-backend-2026-10-12.md) | Hallazgos y validaciones |
-| [Plan de refactorización](docs/revision-y-plan-refactorizacion.md) | Inventario y prioridades |
-| [Retiro de proyectos](docs/project-module-removal.md) | Código retirado y datos preservados |
-| [Organización de ramas](docs/ramas-integracion-2026-10-12.md) | Dependencias de integración |
 | [Pruebas](tests/README.md) | Ejecución y alcance por módulo |
 | [Configuración](app/core/config.py) | Opciones reconocidas |
 | [Dependencias](requirements.txt) | Versiones declaradas |
@@ -569,14 +539,6 @@ La siguiente instantánea se genera del OpenAPI local. Consultar Swagger para cu
 | `GET` | `/api/v1/admin/analytics/charts` | Get Analytics Charts |
 | `GET` | `/api/v1/admin/analytics/summary` | Get Analytics Summary |
 | `GET` | `/api/v1/admin/analytics/usage` | Get System Usage |
-| `GET` | `/api/v1/admin/api-keys/` | List Admin Api Keys |
-| `POST` | `/api/v1/admin/api-keys/` | Admin Create Api Key |
-| `PUT` | `/api/v1/admin/api-keys/settings/ip-whitelist` | Update Global Ip Whitelist |
-| `POST` | `/api/v1/admin/api-keys/settings/pause` | Toggle Traffic Pause |
-| `PATCH` | `/api/v1/admin/api-keys/settings/rate-limit` | Update Global Rate Limit |
-| `GET` | `/api/v1/admin/api-keys/stats/overview` | Get Admin Stats Overview |
-| `DELETE` | `/api/v1/admin/api-keys/{key_id}` | Admin Delete Api Key |
-| `PATCH` | `/api/v1/admin/api-keys/{key_id}/revoke` | Admin Revoke Api Key |
 | `GET` | `/api/v1/admin/ia/audit-logs` | Get Ia Audit Logs |
 | `DELETE` | `/api/v1/admin/ia/audit-logs/clear` | Clear All Ia Data |
 | `GET` | `/api/v1/admin/ia/audit-logs/user/{user_id}` | Get User Audit Detail |
@@ -615,11 +577,6 @@ La siguiente instantánea se genera del OpenAPI local. Consultar Swagger para cu
 | `GET` | `/api/v1/ia/suggestions` | Get Ia Suggestions |
 | `POST` | `/api/v1/ia/transcribe` | Transcribe Audio |
 | `GET` | `/api/v1/ia/usage` | Get Ia Usage |
-| `GET` | `/api/v1/keys/` | List Api Keys |
-| `POST` | `/api/v1/keys/` | Create Api Key |
-| `GET` | `/api/v1/keys/stats` | Get My Stats |
-| `DELETE` | `/api/v1/keys/{key_id}` | Delete Api Key |
-| `PATCH` | `/api/v1/keys/{key_id}/revoke` | Revoke Api Key |
 | `POST` | `/api/v1/layers/` | Upload Layer |
 | `GET` | `/api/v1/layers/` | List Layers |
 | `GET` | `/api/v1/layers/categories` | Get Categories |

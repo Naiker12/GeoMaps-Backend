@@ -2,7 +2,7 @@ FUNCION: BUSQUEDA
 
 Archivos principales:
 - app/api/v1/search.py
-- app/services/search_service.py
+- app/services/search/service.py
 
 Endpoints principales:
 - GET /api/v1/search/

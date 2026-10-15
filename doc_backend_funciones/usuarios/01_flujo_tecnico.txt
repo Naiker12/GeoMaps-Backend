@@ -1,18 +1,17 @@
 FUNCION: USUARIOS
 
 Archivos principales:
-- app/api/v1/users.py
+- app/api/v1/admin/users.py
 - app/db/models/user.py
-- app/schemas/user.py
-- app/infrastructure/repositories/user_repository.py
+- app/schemas/user_schema.py
 
 Endpoints principales:
-- POST /api/v1/users/
-- GET /api/v1/users/
-- GET /api/v1/users/me
-- PATCH /api/v1/users/me
-- PATCH /api/v1/users/{user_id}
-- DELETE /api/v1/users/{user_id}
+- POST /api/v1/admin/users/
+- GET /api/v1/admin/users/
+- GET /api/v1/admin/users/me
+- PATCH /api/v1/admin/users/me
+- PATCH /api/v1/admin/users/{user_id}
+- DELETE /api/v1/admin/users/{user_id}
 
 Flujo:
 1. Se crean, consultan, actualizan o eliminan usuarios.
