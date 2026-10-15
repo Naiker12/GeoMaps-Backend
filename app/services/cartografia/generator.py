@@ -395,11 +395,11 @@ class CartografiaService:
         grid = fig.add_gridspec(
             nrows=3,
             ncols=1,
-            height_ratios=[0.58, 7.2, 0.34],
+            height_ratios=[0.8, 7.2, 0.34],
             hspace=0.08,
             left=0.055,
             right=0.965,
-            top=0.975,
+            top=0.935,
             bottom=0.045,
         )
 
