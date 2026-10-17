@@ -9,6 +9,11 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     role: str
     avatar_url: Optional[str] = None
+    job_title: Optional[str] = None
+    bio: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: bool = True
+    last_login: Optional[datetime] = None
 
 class AuthResponse(BaseModel):
     success: bool
