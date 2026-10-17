@@ -26,20 +26,24 @@ async def create_download(
     metadata_: Optional[str] = Form(None, alias="metadata"),
     show_in_public: bool = Form(True),
     is_published: bool = Form(True),
+    tags: str = Form("[]"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Crea el registro inicial del recurso de descarga."""
-    download_in = DownloadResourceCreate(
-        name=name,
-        category=category,
-        layer_id=uuid.UUID(layer_id) if layer_id and layer_id not in ["undefined", "manual"] else None,
-        description=description,
-        metadata_=json.loads(metadata_) if metadata_ else {},
-        show_in_public=show_in_public,
-        is_published=is_published
-    )
-    
+    try:
+        download_in = DownloadResourceCreate(
+            name=name, category=category,
+            layer_id=uuid.UUID(layer_id) if layer_id and layer_id not in ["undefined", "manual"] else None,
+            description=description,
+            metadata_=json.loads(metadata_) if metadata_ else {},
+            show_in_public=show_in_public,
+            is_published=is_published,
+            tags=json.loads(tags),
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, detail="Datos del recurso no válidos") from exc
+
     download_service = DownloadService(db)
     return await download_service.create_download(download_in, current_user.id)
 
@@ -92,6 +96,47 @@ async def upload_resource_file(
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
         
     return updated
+
+
+@router.patch("/{resource_id}", response_model=DownloadResourceResponse)
+async def update_download(
+    resource_id: uuid.UUID,
+    name: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    layer_id: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    metadata_: Optional[str] = Form(None, alias="metadata"),
+    show_in_public: Optional[bool] = Form(None),
+    is_published: Optional[bool] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    service = DownloadService(db)
+    resource = await service.repository.get(resource_id)
+    if not resource:
+        raise HTTPException(404, detail="Recurso no encontrado")
+    try:
+        ensure_resource_owner(current_user, resource.created_by)
+    except PermissionError as exc:
+        raise HTTPException(403, detail=str(exc)) from exc
+    try:
+        values = {
+            key: value for key, value in {
+                "name": name, "category": category, "description": description,
+                "show_in_public": show_in_public, "is_published": is_published,
+            }.items() if value is not None
+        }
+        if layer_id is not None:
+            values["layer_id"] = None if layer_id in ["", "manual", "undefined"] else uuid.UUID(layer_id)
+        if tags is not None:
+            values["tags"] = json.loads(tags)
+        if metadata_ is not None:
+            values["metadata_"] = json.loads(metadata_)
+        validated = DownloadResourceUpdate(**values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, detail="Datos del recurso no válidos") from exc
+    return await service.repository.update(resource, validated.model_dump(exclude_unset=True))
 
 
 @router.get("/", response_model=List[DownloadResourceResponse])
